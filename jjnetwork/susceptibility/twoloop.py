@@ -1,0 +1,199 @@
+import json
+import os
+from typing import Sequence
+
+import numpy as np
+import scipy.linalg as la
+
+from ..network import JosephsonNetwork
+from .. import em
+from .. import graph_utils as gu
+from ..geometry import (
+    circle,
+    close_curve,
+    triangulate,
+    triangle_areas,
+    polygon_centroids,
+)
+from ..junctions import josephson_energy_power_law, josephson_energy_exponential
+
+EJ_funcs = {
+    "power_law": josephson_energy_power_law,
+    "exponential": josephson_energy_exponential,
+}
+
+ureg = em.ureg
+
+
+class TwoLoopModel(JosephsonNetwork):
+    """A Josephson network model where the SQUID field coil and pickup loop are
+    represented by 1D circular loops.
+    """
+
+    META_ATTRS = [
+        "fc_center",
+        "fc_radius",
+        "fc_current",
+        "pl_center",
+        "pl_radius",
+        "patch_radius",
+        "junction_cutoff_radius",
+        "junction_d0",
+        "junction_I0",
+    ] + JosephsonNetwork.META_ATTRS
+
+    def __init__(
+        self,
+        *,
+        directory: os.PathLike,
+        island_positions: np.ndarray,
+        island_diameter: float,
+        fc_center: Sequence[float, float, float],
+        fc_radius: float,
+        fc_current: str,
+        pl_center: Sequence[float, float, float],
+        pl_radius: float,
+        patch_radius_factor: float,
+        junction_cutoff_radius: str,
+        junction_d0: str,
+        junction_I0: str,
+        length_units: str = "um",
+        junction_length_dependence: str = "power_law",
+        rng_seed: int = -1,
+        gekko_local: bool = True,
+        gekko_verbose: int = 5,
+    ):
+        super().__init__(
+            directory=directory,
+            island_positions=island_positions,
+            length_units=length_units,
+            rng_seed=rng_seed,
+            gekko_local=gekko_local,
+            gekko_verbose=gekko_verbose,
+        )
+        # Field coil info
+        self.fc_center = np.atleast_2d(fc_center)
+        self.fc_radius = fc_radius
+        self.fc_current = ureg(fc_current)
+        # Pickup loop info
+        self.pl_center = np.atleast_2d(pl_center)
+        self.pl_radius = pl_radius
+        self.pl_centroids = None
+        self.pl_areas = None
+
+        self.island_diameter = island_diameter
+        self.patch_radius = fc_radius * patch_radius_factor
+        self.junction_cutoff_radius = junction_cutoff_radius
+        self.junction_d0 = junction_d0
+        self.junction_I0 = junction_I0
+        assert junction_length_dependence in EJ_funcs
+        self.junction_length_dependence = junction_length_dependence
+
+    def compute_neighbors(self) -> None:
+        """Removes islands outside the patch radius, and any overlapping
+        or isolated islands.
+        """
+        # Remove points lying outside the patch radius
+        self.island_positions = self.island_positions[
+            la.norm(self.island_positions - self.fc_center[:, :2], axis=1)
+            <= self.patch_radius
+        ]
+        print(f"Total patch size: {self.island_positions.shape[0]} islands.")
+        # Replace any set of overlapping islands with a single island located at
+        # the mean position of the set of islands.
+        self.island_positions = gu.remove_overlapping_islands(
+            self.island_positions,
+            ureg(self.island_diameter).to(self.length_units).magnitude,
+        )
+        print(
+            f"Total patch size after removing overlapping islands: "
+            f"{self.island_positions.shape[0]} islands."
+        )
+        self.island_positions, self.neighbors = gu.remove_isolated_islands(
+            self.island_positions,
+            self.junction_cutoff_radius,
+        )
+        print(
+            f"Total patch size after removing isolated islands: "
+            f"{self.island_positions.shape[0]} islands."
+        )
+        assert len(self.neighbors) == len(self.island_positions)
+
+    def josephson_energy(self, junction_length: float) -> float:
+        d0 = ureg(self.junction_d0).to("m").magnitude
+        I0 = ureg(self.junction_I0).to("m").magnitude
+        ej_func = EJ_funcs[self.junction_length_dependence]
+        return ej_func(junction_length, d0=d0, I0=I0)
+
+    def build_model(
+        self,
+        pl_points: int = 201,
+        pl_triangles: int = 5000,
+    ) -> None:
+        pl_outer = circle(self.pl_radius, points=pl_points)
+        pl_points, pl_triangles = triangulate(pl_outer, min_triangles=pl_triangles)
+        pl_centroids = polygon_centroids(pl_points, pl_triangles)
+        pl_areas = triangle_areas(pl_points, pl_triangles) * self.length_units**2
+        pl_centroids = np.append(
+            pl_centroids, np.zeros_like(pl_centroids[:, :1]), axis=1
+        )
+        pl_centroids += self.pl_center
+        self.pl_areas = pl_areas
+        self.pl_centroids = pl_centroids
+        length_scale = self.length_units.to("m").magnitude
+
+        print("Calculating bare mutual inductance...")
+        fc_field = em.current_loop_field(
+            pl_centroids * length_scale,
+            loop_center=self.fc_center * length_scale,
+            loop_radius=self.fc_radius * length_scale,
+            current=self.fc_current.to("A").magnitude,
+        )[:, 2]
+        fc_field = fc_field * ureg("tesla")
+        bare_flux = np.einsum("i, i ->", fc_field, pl_areas).to("Phi_0")
+        bare_mutual_bs = (bare_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (Biot-Savart): {bare_mutual_bs:.3e~P}")
+
+        pl_outer = (
+            np.append(pl_outer, np.zeros_like(pl_outer[:, :1]), axis=1)
+            * self.length_units
+        )
+        pl_outer += self.pl_center * self.length_units
+        pl_vector_potential = em.current_loop_vector_potential(
+            pl_outer.to("m").magnitude,
+            loop_center=self.fc_center * length_scale,
+            loop_radius=self.fc_radius * length_scale,
+            current=self.fc_current.to("A").magnitude,
+        ) * ureg("tesla * meter")
+        d_pl = np.diff(close_curve(pl_outer), axis=0)
+        pl_flux = np.trapz(np.sum(pl_vector_potential * d_pl, axis=1)).to("Phi_0")
+        bare_mutual_A = (pl_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (vector potential): {bare_mutual_A:.3e~P}")
+        return super().build_model()
+
+    def vector_potential(self, positions: np.ndarray) -> np.ndarray:
+        length_scale = self.length_units.to("m").magnitude
+        return em.current_loop_vector_potential(
+            positions,
+            loop_center=self.fc_center * length_scale,
+            loop_radius=self.fc_radius * length_scale,
+            current=self.fc_current.to("A").magnitude,
+        )
+
+    def post_process(self):
+        """Calculates the flux through the pickup loop due to the supercurrents
+        flowing in the network.
+        """
+        print("Calculating screening field...")
+        graph = self.graph
+        pl_areas = self.pl_areas
+        screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
+        screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
+        mutual = (screening_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Susceptibility: {mutual:.3e~P}")
+        with open(self.json_file, "r") as f:
+            metadata = json.load(f)
+        metadata["susceptibility"] = mutual
+        with open(self.json_file, "w") as f:
+            json.dump(metadata, f)
+        return super().post_process()

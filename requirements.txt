@@ -1,0 +1,9 @@
+gekko
+matplotlib
+meshpy
+networkx
+numpy
+pandas
+pint
+scipy
+tqdm
