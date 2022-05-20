@@ -12,12 +12,13 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy.linalg as la
-import tqdm
+from tqdm import tqdm
 
 from .em import ureg, Phi_0
 from .graph_utils import (
     get_scalar,
     basis_loops,
+    find_all_cells,
     draw_graph,
     draw_currents,
     edge_data_to_df,
@@ -210,9 +211,12 @@ def build_graph(
     return model_info
 
 
-def calculate_loop_info(graph: nx.DiGraph) -> list[LoopInfo]:
+def calculate_loop_info(graph: nx.DiGraph, length: Optional[int] = None) -> list[LoopInfo]:
     """Generates LoopInfo instances for all basis loops in a network."""
-    loops = basis_loops(graph)
+    if length is None:
+        loops = basis_loops(graph)
+    else:
+        loops = find_all_cells(graph, length)
     edges = graph.edges
     loop_info = []
     for loop in loops:
@@ -291,13 +295,13 @@ class JosephsonNetwork(ABC):
         self.gekko_verbose = gekko_verbose
         self.rng_seed = int(rng_seed)
         if self.rng_seed == -1:
-            self.rng_seed = int(self.run_start.timestamp())
+            self.rng_seed = int(self.timing.run_start.timestamp())
         self.rng = np.random.default_rng(seed=self.rng_seed)
         self.island_positions = island_positions
         self.neighbors = None
         self.model_info = None
         self.gekko_model = None
-        self.compute_neighbors(self.island_positions)
+        self.compute_neighbors()
 
     @abstractmethod
     def compute_neighbors(self) -> None:
@@ -404,7 +408,7 @@ class JosephsonNetwork(ABC):
             island_positions=island_positions,
             neighbors=self.neighbors,
             josephson_energy_func=self.josephson_energy,
-            vector_potential=self.vector_potential,
+            vector_potential_func=self.vector_potential,
             phase_initializer=init_phase,
         )
 
@@ -465,7 +469,7 @@ class JosephsonNetwork(ABC):
             df = edge_data_to_df(graph)
             store["edge_data"] = df
 
-            self.model_info.loops = loop_info = calculate_loop_info(graph)
+            self.model_info.loops = loop_info = calculate_loop_info(graph, 4)
             loops = np.array([loop.nodes for loop in loop_info])
             frustration = np.array([get_scalar(loop.frustration) for loop in loop_info])
             vortices = np.array([get_scalar(loop.vortices) for loop in loop_info])
@@ -498,7 +502,9 @@ class JosephsonNetwork(ABC):
         plt.close(fig)
 
         self.timing.run_stop = datetime.now()
-        self.timing.run_time = (self.run_stop - self.run_start).total_seconds()
+        self.timing.run_time = (
+            self.timing.run_stop - self.timing.run_start
+        ).total_seconds()
         solve_time = (self.timing.gekko_stop - self.timing.gekko_stop).total_seconds()
         print(f"Total solve time: {solve_time:.3f} seconds.")
         print(f"Total run time: {self.timing.run_time:.3f} seconds.")
@@ -522,7 +528,7 @@ class JosephsonNetwork(ABC):
 
     def cleanup(self) -> None:
         """Removes unwanted solver-related files."""
-        files_to_keep = [
+        files_to_keep = {
             "infeasibilities.txt",
             "results.h5",
             "graph.pdf",
@@ -531,7 +537,7 @@ class JosephsonNetwork(ABC):
             "ipopt.opt",
             "apopt_current_options.opt",
             "APOPT.out",
-        ]
+        }
         for name in os.listdir(self.outdir):
             if name in files_to_keep:
                 continue

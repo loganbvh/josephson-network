@@ -2,12 +2,14 @@ import json
 import os
 from typing import Sequence
 
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg as la
 
-from ..network import JosephsonNetwork
 from .. import em
 from .. import graph_utils as gu
+from ..io import NumpyJSONEncoder
+from ..network import JosephsonNetwork
 from ..geometry import (
     circle,
     close_curve,
@@ -48,10 +50,10 @@ class TwoLoopModel(JosephsonNetwork):
         directory: os.PathLike,
         island_positions: np.ndarray,
         island_diameter: float,
-        fc_center: Sequence[float, float, float],
+        fc_center: Sequence[float],
         fc_radius: float,
         fc_current: str,
-        pl_center: Sequence[float, float, float],
+        pl_center: Sequence[float],
         pl_radius: float,
         patch_radius_factor: float,
         junction_cutoff_radius: str,
@@ -63,14 +65,6 @@ class TwoLoopModel(JosephsonNetwork):
         gekko_local: bool = True,
         gekko_verbose: int = 5,
     ):
-        super().__init__(
-            directory=directory,
-            island_positions=island_positions,
-            length_units=length_units,
-            rng_seed=rng_seed,
-            gekko_local=gekko_local,
-            gekko_verbose=gekko_verbose,
-        )
         # Field coil info
         self.fc_center = np.atleast_2d(fc_center)
         self.fc_radius = fc_radius
@@ -88,6 +82,15 @@ class TwoLoopModel(JosephsonNetwork):
         self.junction_I0 = junction_I0
         assert junction_length_dependence in EJ_funcs
         self.junction_length_dependence = junction_length_dependence
+
+        super().__init__(
+            directory=directory,
+            island_positions=island_positions,
+            length_units=length_units,
+            rng_seed=rng_seed,
+            gekko_local=gekko_local,
+            gekko_verbose=gekko_verbose,
+        )
 
     def compute_neighbors(self) -> None:
         """Removes islands outside the patch radius, and any overlapping
@@ -121,7 +124,7 @@ class TwoLoopModel(JosephsonNetwork):
 
     def josephson_energy(self, junction_length: float) -> float:
         d0 = ureg(self.junction_d0).to("m").magnitude
-        I0 = ureg(self.junction_I0).to("m").magnitude
+        I0 = ureg(self.junction_I0).to("A").magnitude
         ej_func = EJ_funcs[self.junction_length_dependence]
         return ej_func(junction_length, d0=d0, I0=I0)
 
@@ -186,6 +189,7 @@ class TwoLoopModel(JosephsonNetwork):
         """
         print("Calculating screening field...")
         graph = self.graph
+        df = gu.edge_data_to_df(graph)
         pl_areas = self.pl_areas
         screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
         screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
@@ -195,5 +199,20 @@ class TwoLoopModel(JosephsonNetwork):
             metadata = json.load(f)
         metadata["susceptibility"] = mutual
         with open(self.json_file, "w") as f:
-            json.dump(metadata, f)
+            json.dump(metadata, f, indent=4, sort_keys=True, cls=NumpyJSONEncoder)
+
+        fig, axes = gu.draw_currents(df, linewidth=3, cmap="inferno")
+        title = [
+            self.outdir,
+            (
+                f"Junction I0: {self.junction_I0}, "
+                f"FC current: {self.fc_current:.2f~P}, "
+                f"Susceptibility: {mutual:.3e~P}"
+            ),
+        ]
+        fig.suptitle("\n".join(title))
+        fig.subplots_adjust(top=0.85)
+        fig.savefig(os.path.join(self.outdir, "currents.pdf"), bbox_inches="tight")
+        plt.close(fig)
+
         return super().post_process()

@@ -59,7 +59,7 @@ def biot_savart(
 def current_loop_vector_potential(
     positions: np.ndarray,
     *,
-    loop_center: Sequence[float, float, float] = (0, 0, 0),
+    loop_center: Sequence[float] = (0, 0, 0),
     loop_radius: float = 1e-6,
     current: float = 1e-3,
 ):
@@ -106,7 +106,7 @@ def current_loop_vector_potential(
 def current_loop_field(
     positions: np.ndarray,
     *,
-    loop_center: Sequence[float, float, float] = (0, 0, 0),
+    loop_center: Sequence[float] = (0, 0, 0),
     loop_radius: float = 1e-6,
     current: float = 1e-3,
     num_segments: int = 101,

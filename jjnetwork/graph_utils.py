@@ -152,13 +152,9 @@ def find_all_cycles(graph: nx.Graph, length: int) -> list[list[tuple[int]]]:
     return cycles
 
 
-def find_all_cells(graph: nx.Graph) -> np.ndarray:
-    """Finds all cycles of length 4 in the graph and orients them counterclockwise."""
-    loops = find_all_cycles(graph, 3)
-    if len(loops) == 0:
-        # If it's a square lattice with only 4 nearest neighbors, there are no
-        # length 3 closed paths.
-        loops = find_all_cycles(graph, 4)
+def find_all_cells(graph: nx.Graph, length: int = 4) -> np.ndarray:
+    """Finds all cycles of a given length in the graph and orients them counterclockwise."""
+    loops = find_all_cycles(graph, length)
     seen = set()
     unique_loops = []
     for loop in loops:
@@ -172,7 +168,6 @@ def find_all_cells(graph: nx.Graph) -> np.ndarray:
     areas = polygon_areas(points, cells[:, :-1])
     clockwise = areas < 0
     cells[clockwise, :] = cells[clockwise, ::-1]
-
     areas = polygon_areas(points, cells[:, :-1])
     assert np.all(areas > 0)
     return cells
@@ -334,10 +329,10 @@ def draw_currents(
     edge_positions = (node1_positions + node2_positions) / 2
     edge_vectors = np.stack([df["vector_x"], df["vector_y"]], axis=1) * 1e6
     unit_vectors = unit_vector(edge_vectors)
-    currents = df["current"].values * 1e6
+    currents = df["current"].values * 1e9
     unit_vectors *= np.sign(currents)[:, np.newaxis]
     currents = np.abs(currents)
-    Ic = df["Ic"].values * 1e6
+    Ic = df["Ic"].values * 1e9
     fig, (ax, bx) = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=True)
     for a in (ax, bx):
         a.set_aspect("equal")
@@ -353,7 +348,7 @@ def draw_currents(
         **kwargs,
     )
     cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label("Current, $|I|$ [$\\mu$A]")
+    cbar.set_label("Current, $|I|$ [nA]")
 
     im = bx.quiver(
         edge_positions[:, 0],
