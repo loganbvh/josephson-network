@@ -1,10 +1,7 @@
 gekko
-matplotlib
-meshpy
 networkx
-numpy
 pandas
-pint
+pre-commit
+superscreen>=0.6.0
 tables
-scipy
 tqdm

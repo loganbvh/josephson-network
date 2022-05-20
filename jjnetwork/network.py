@@ -85,7 +85,7 @@ def build_graph(
     """
     print("Generating junctions and building model...")
     if phase_initializer is None:
-        phase_initializer = lambda: 0.0
+        phase_initializer = lambda: 0.0  # noqa: E731
 
     m = gekko_model
 
@@ -211,7 +211,9 @@ def build_graph(
     return model_info
 
 
-def calculate_loop_info(graph: nx.DiGraph, length: Optional[int] = None) -> list[LoopInfo]:
+def calculate_loop_info(
+    graph: nx.DiGraph, length: Optional[int] = None
+) -> list[LoopInfo]:
     """Generates LoopInfo instances for all basis loops in a network."""
     if length is None:
         loops = basis_loops(graph)
@@ -374,8 +376,8 @@ class JosephsonNetwork(ABC):
         else:
             solver_id = 3
             options = [
-                f"nlp_scaling_method gradient-based",
-                f"ma57_automatic_scaling yes",
+                "nlp_scaling_method gradient-based",
+                "ma57_automatic_scaling yes",
                 f"print_level {max(self.gekko_verbose, 0)}",
             ]
         return solver_id, options
@@ -398,9 +400,9 @@ class JosephsonNetwork(ABC):
         )
 
         if self.rng_seed:
-            init_phase = lambda: 1e-2 * self.rng.random()
+            init_phase = lambda: 1e-2 * self.rng.random()  # noqa: E731
         else:
-            init_phase = lambda: 0
+            init_phase = lambda: 0  # noqa: E731
 
         island_positions = (self.island_positions * self.length_units).to("m").magnitude
         self.model_info = build_graph(
