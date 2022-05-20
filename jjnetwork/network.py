@@ -3,7 +3,6 @@ from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
-from multiprocessing.sharedctypes import Value
 import os
 from typing import Any, Callable, Optional
 
@@ -19,7 +18,6 @@ from .em import ureg, Phi_0
 from .graph_utils import (
     get_scalar,
     basis_loops,
-    find_all_cells,
     draw_graph,
     draw_currents,
     edge_data_to_df,
@@ -257,13 +255,13 @@ class JosephsonNetwork(ABC):
         gekko_verbose: An integer indicating the gekko verbosity level.
     """
 
-    META_ATTRS = (
+    META_ATTRS = [
         "outdir",
         "length_units",
         "rng_seed",
         "gekko_remote",
         "gekko_verbose",
-    )
+    ]
 
     def __init__(
         self,

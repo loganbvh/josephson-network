@@ -1,5 +1,5 @@
 from numbers import Number
-from typing import Any, Sequence
+from typing import Any, Sequence, Optional
 
 import matplotlib.pyplot as plt
 import networkx as nx
