@@ -14,7 +14,7 @@ import pandas as pd
 import scipy.linalg as la
 from tqdm import tqdm
 
-from .em import ureg, Phi_0
+from .em import ureg, Phi_0, eV
 from .graph_utils import (
     get_scalar,
     basis_loops,
@@ -152,7 +152,7 @@ def build_graph(
             name=f"c{n}",
         )
         attrs["energy"] = m.Intermediate(
-            attrs["EJ"] * (1 - m.cos(attrs["theta"])),
+            attrs["EJ"] * (1 - m.cos(attrs["theta"])) / eV,
             name=f"e{n}",
         )
         edge_attrs[(i, j)] = attrs
@@ -496,7 +496,7 @@ class JosephsonNetwork(ABC):
         total_energy = sum(
             get_scalar(energy) for _, _, energy in graph.edges.data("energy")
         )
-        print(f"Total energy: {total_energy:.3e} joules.")
+        print(f"Total energy: {total_energy:.3e} eV.")
 
         fig, axes = draw_currents(df, linewidth=3, cmap="inferno")
         fig.suptitle(outdir)
@@ -507,12 +507,12 @@ class JosephsonNetwork(ABC):
         self.timing.run_time = (
             self.timing.run_stop - self.timing.run_start
         ).total_seconds()
-        solve_time = (self.timing.gekko_stop - self.timing.gekko_stop).total_seconds()
+        solve_time = (self.timing.gekko_stop - self.timing.gekko_start).total_seconds()
         print(f"Total solve time: {solve_time:.3f} seconds.")
         print(f"Total run time: {self.timing.run_time:.3f} seconds.")
 
         metadata = self.metadata()
-        metadata["energy"] = total_energy
+        metadata["energy"] = f"{total_energy:.6e} eV"
         metadata["vortices"] = {}
         for n, loop_info in enumerate(self.loops):
             v = get_scalar(loop_info.vortices)

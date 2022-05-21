@@ -301,7 +301,7 @@ def load_graph_h5(filename: str) -> pd.DataFrame:
 
 
 def draw_graph(
-    graph: nx.Graph, ax: Optional[plt.Axes] = None, **kwargs
+    graph: nx.Graph, ax: Optional[plt.Axes] = None, buffer: float = 1.1, **kwargs
 ) -> tuple[plt.Figure, plt.Axes]:
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 8))
@@ -313,7 +313,6 @@ def draw_graph(
     kwargs["arrows"] = False
     kwargs["node_size"] = kwargs.get("node_size", 1)
     nx.draw(graph, pos, ax=ax, **kwargs)
-    buffer = 1.1
     x0, y0 = np.mean(coords, axis=0)
     dx, dy = buffer * np.ptp(coords, axis=0)
     ax.set_xlim(x0 - dx / 2, x0 + dx / 2)

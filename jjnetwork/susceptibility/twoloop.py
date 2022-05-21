@@ -19,12 +19,12 @@ from ..geometry import (
 )
 from ..junctions import josephson_energy_power_law, josephson_energy_exponential
 
+ureg = em.ureg
+
 EJ_funcs = {
     "power_law": josephson_energy_power_law,
     "exponential": josephson_energy_exponential,
 }
-
-ureg = em.ureg
 
 
 class TwoLoopModel(JosephsonNetwork):
@@ -189,7 +189,6 @@ class TwoLoopModel(JosephsonNetwork):
         """
         print("Calculating screening field...")
         graph = self.graph
-        df = gu.edge_data_to_df(graph)
         pl_areas = self.pl_areas
         screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
         screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
@@ -201,6 +200,21 @@ class TwoLoopModel(JosephsonNetwork):
         with open(self.json_file, "w") as f:
             json.dump(metadata, f, indent=4, sort_keys=True, cls=NumpyJSONEncoder)
 
+        length_scale = self.length_units.to("m").magnitude
+        fig, ax = gu.draw_graph(graph)
+        fc = (
+            close_curve(circle(self.fc_radius)) + self.fc_center[:, :2]
+        ) * length_scale
+        pl = (
+            close_curve(circle(self.pl_radius)) + self.pl_center[:, :2]
+        ) * length_scale
+        ax.plot(fc[:, 0], fc[:, 1], "C1-", lw=3)
+        ax.plot(pl[:, 0], pl[:, 1], "C2-", lw=3)
+        ax.set_title(os.path.basename(self.outdir))
+        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        plt.close(fig)
+
+        df = gu.edge_data_to_df(graph)
         fig, axes = gu.draw_currents(df, linewidth=3, cmap="inferno")
         title = [
             self.outdir,

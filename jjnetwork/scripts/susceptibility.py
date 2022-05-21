@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ..susceptibility import TwoLoopModel
+from ..susceptibility import TwoLoopModel, SSMModel
 
 
 if __name__ == "__main__":
@@ -37,6 +37,7 @@ if __name__ == "__main__":
             "ibm.medium",
             "ibm.large",
             "ibm.xlarge",
+            "huber",
         ),
         default="ibm.medium",
         help="Model for the SQUID susceptometer.",
@@ -45,7 +46,7 @@ if __name__ == "__main__":
         "--squid-position",
         type=float,
         nargs=3,
-        default=0,
+        default=(0, 0, 0),
         help="x, y, z position of the SQUID susceptometer.",
     )
     parser.add_argument(
@@ -64,7 +65,7 @@ if __name__ == "__main__":
         "--fc-center",
         type=float,
         nargs=3,
-        default=0,
+        default=(0, 0, 0),
         help="x, y, z position of the field coil (current loop) center.",
     )
     parser.add_argument(
@@ -83,7 +84,7 @@ if __name__ == "__main__":
         "--pl-center",
         type=float,
         nargs=3,
-        default=0,
+        default=(0, 0, 0),
         help="x, y, z position of the pickup loop center.",
     )
     parser.add_argument(
@@ -169,7 +170,7 @@ if __name__ == "__main__":
             "squid_iterations",
         ]
     else:
-        model_cls = None
+        model_cls = SSMModel
         pop_args = [
             "fc_center",
             "fc_radius",

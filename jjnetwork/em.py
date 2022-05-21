@@ -9,6 +9,7 @@ import scipy.linalg as la
 ureg = pint.UnitRegistry()
 mu_0 = ureg("mu_0").to_base_units().magnitude
 Phi_0 = ureg("Phi_0").to_base_units().magnitude
+eV = ureg("eV").to_base_units().magnitude
 
 
 def biot_savart(
