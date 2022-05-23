@@ -26,10 +26,10 @@ class FieldCoil:
     ):
         if isinstance(r_inner, str):
             r_inner = ureg(r_inner)
-        self.r_inner = r_inner
         if isinstance(r_outer, str):
             r_outer = ureg(r_outer)
-        self.r_outer = r_inner
+        self.r_inner = r_inner
+        self.r_outer = r_outer
 
     @property
     def d_inner(self) -> Union[float, pint.Quantity]:
@@ -72,9 +72,9 @@ field_coil_radii = {
 
 def Bz_from_graph(x, y, z, *, graph, units="mT"):
     z = z * np.ones_like(x)
-    positions = np.stack([x, y, z], axis=1) * 1e-6
-    field = em.calculate_field_from_graph(positions, graph).to(units).magnitude
-    return field[:, 2]
+    positions = np.stack([x, y, z], axis=1)
+    field = em.calculate_field_from_graph(positions, graph, length_units="um")
+    return field.to(units).magnitude[:, 2]
 
 
 class SSMModel(JosephsonNetwork):
@@ -135,7 +135,7 @@ class SSMModel(JosephsonNetwork):
         if self.squid.Del2 is None:
             self.squid.make_mesh(min_points=squid_points, optimesh_steps=40)
 
-        circulating_currents = {"fc_center": str(self.fc_current)}
+        circulating_currents = dict(fc_center=str(self.fc_current))
         I_fc = squid.ureg(circulating_currents["fc_center"])
         self.fc_solution = sc.solve(
             device=self.squid,
