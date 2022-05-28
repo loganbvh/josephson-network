@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Union
 
 import networkx as nx
 import numpy as np
@@ -57,6 +57,38 @@ def biot_savart(
     return mu_0 / (4 * np.pi) * integral * ureg("tesla")
 
 
+def uniform_Bz_vector_potential(
+    positions: np.ndarray,
+    Bz: Union[float, str, pint.Quantity],
+) -> np.ndarray:
+    """Calculates the magnetic vector potential [Ax, Ay, Az] at ``positions``
+    due uniform magnetic field along the z-axis with strength ``Bz``.
+
+    Args:
+        positions: Shape (n, 3) array of (x, y, z) positions in meters at which to
+            evaluate the vector potential.
+        Bz: The strength of the uniform field, as a pint-parseable string,
+            a pint.Quantity, or a float with units of Tesla.
+
+    Returns:
+        Shape (n, 3) array of the vector potential [Ax, Ay, Az] at ``positions``
+        in units of Tesla * meter.
+    """
+    assert isinstance(Bz, (float, str, pint.Quantity)), type(Bz)
+    positions = np.atleast_2d(positions)
+    assert positions.shape[1] == 3, positions.shape
+    if not isinstance(positions, pint.Quantity):
+        positions = positions * ureg("meter")
+    if isinstance(Bz, str):
+        Bz = ureg(Bz)
+    if isinstance(Bz, float):
+        Bz = Bz * ureg("tesla")
+    Ax = -Bz * positions[:, 1] / 2
+    Ay = Bz * positions[:, 0] / 2
+    A = np.stack([Ax, Ay, np.zeros_like(Ax)], axis=1)
+    return A.to("tesla * meter")
+
+
 def current_loop_vector_potential(
     positions: np.ndarray,
     *,
@@ -64,7 +96,7 @@ def current_loop_vector_potential(
     loop_radius: float = 1e-6,
     current: float = 1e-3,
 ):
-    """Calculates the magnetic vector potential [Ax, Ay] at ``positions``
+    """Calculates the magnetic vector potential [Ax, Ay, Az] at ``positions``
     due to a 1D current loop.
 
     Input units are meters and Amperes, output units are Tesla * meter.
@@ -157,7 +189,7 @@ def calculate_field_from_graph(
     if not isinstance(positions, pint.Quantity):
         positions = positions * ureg(length_units)
     positions = positions.to("m").magnitude
-    # Extract edge data from the grap
+    # Extract edge data from the graph
     nodes = graph.nodes
     edge_centers = []
     edge_vectors = []

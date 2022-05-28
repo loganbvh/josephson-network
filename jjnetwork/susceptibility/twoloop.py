@@ -39,7 +39,7 @@ class TwoLoopModel(JosephsonNetwork):
         "pl_center",
         "pl_radius",
         "patch_radius",
-        "junction_cutoff_radius",
+        "junction_length_dependence",
         "junction_d0",
         "junction_I0",
     ] + JosephsonNetwork.META_ATTRS
@@ -47,23 +47,16 @@ class TwoLoopModel(JosephsonNetwork):
     def __init__(
         self,
         *,
-        directory: os.PathLike,
-        island_positions: np.ndarray,
-        island_diameter: float,
         fc_center: Sequence[float],
         fc_radius: float,
         fc_current: str,
         pl_center: Sequence[float],
         pl_radius: float,
         patch_radius_factor: float,
-        junction_cutoff_radius: str,
         junction_d0: str,
         junction_I0: str,
-        length_units: str = "um",
         junction_length_dependence: str = "power_law",
-        rng_seed: int = -1,
-        gekko_local: bool = True,
-        gekko_verbose: int = 5,
+        **kwargs,
     ):
         # Field coil info
         self.fc_center = np.atleast_2d(fc_center)
@@ -74,53 +67,21 @@ class TwoLoopModel(JosephsonNetwork):
         self.pl_radius = pl_radius
         self.pl_centroids = None
         self.pl_areas = None
-
-        self.island_diameter = island_diameter
+        # Remove points lying outside the patch radius
         self.patch_radius = fc_radius * patch_radius_factor
-        self.junction_cutoff_radius = junction_cutoff_radius
+        island_positions = kwargs.pop("island_positions")
+        island_positions = island_positions[
+            la.norm(island_positions - self.fc_center[:, :2], axis=1)
+            <= self.patch_radius
+        ]
+        kwargs["island_positions"] = island_positions
+        print(f"Total patch size: {island_positions.shape[0]} islands.")
         self.junction_d0 = junction_d0
         self.junction_I0 = junction_I0
         assert junction_length_dependence in EJ_funcs
         self.junction_length_dependence = junction_length_dependence
 
-        super().__init__(
-            directory=directory,
-            island_positions=island_positions,
-            length_units=length_units,
-            rng_seed=rng_seed,
-            gekko_local=gekko_local,
-            gekko_verbose=gekko_verbose,
-        )
-
-    def compute_neighbors(self) -> None:
-        """Removes islands outside the patch radius, and any overlapping
-        or isolated islands.
-        """
-        # Remove points lying outside the patch radius
-        self.island_positions = self.island_positions[
-            la.norm(self.island_positions - self.fc_center[:, :2], axis=1)
-            <= self.patch_radius
-        ]
-        print(f"Total patch size: {self.island_positions.shape[0]} islands.")
-        # Replace any set of overlapping islands with a single island located at
-        # the mean position of the set of islands.
-        self.island_positions = gu.remove_overlapping_islands(
-            self.island_positions,
-            ureg(self.island_diameter).to(self.length_units).magnitude,
-        )
-        print(
-            f"Total patch size after removing overlapping islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        self.island_positions, self.neighbors = gu.remove_isolated_islands(
-            self.island_positions,
-            self.junction_cutoff_radius,
-        )
-        print(
-            f"Total patch size after removing isolated islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        assert len(self.neighbors) == len(self.island_positions)
+        super().__init__(**kwargs)
 
     def josephson_energy(self, junction_length: float) -> float:
         d0 = ureg(self.junction_d0).to("m").magnitude

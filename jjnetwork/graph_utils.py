@@ -1,3 +1,4 @@
+from collections import defaultdict
 from numbers import Number
 from typing import Any, Sequence, Optional
 
@@ -161,15 +162,15 @@ def find_all_cells(graph: nx.Graph, length: int = 4) -> np.ndarray:
         if frozenset(loop) not in seen:
             unique_loops.append(loop)
             seen.add(frozenset(loop))
-    # find_all_cycles returns round-trip indices
     cells = np.array(unique_loops)
     points = np.stack([p for _, p in sorted(graph.nodes.data("position"))], axis=0)
-    # Ensure triangles are CCW
+    # Ensure polygons are CCW
     areas = polygon_areas(points, cells[:, :-1])
     clockwise = areas < 0
     cells[clockwise, :] = cells[clockwise, ::-1]
     areas = polygon_areas(points, cells[:, :-1])
-    assert np.all(areas > 0)
+    # assert np.all(areas >= 0)
+    cells = cells[areas > 0]
     return cells
 
 
@@ -238,8 +239,14 @@ def remove_isolated_islands(
 
 
 def extract_edge_data(graph: nx.Graph) -> dict[tuple[int], float]:
-    edge_data = {}
     nodes = graph.nodes
+    node_current_in = defaultdict(list)
+    node_current_out = defaultdict(list)
+    for i, j, current in graph.edges.data("current"):
+        node_current_in[j].append(get_scalar(current))
+        node_current_out[i].append(get_scalar(current))
+    node_currents = [sum(node_current_in[i]) - sum(node_current_out[i]) for i in nodes]
+    edge_data = {}
     for i, j, data in graph.edges.data():
         n1 = nodes[i]
         n2 = nodes[j]
@@ -254,6 +261,8 @@ def extract_edge_data(graph: nx.Graph) -> dict[tuple[int], float]:
             "node2_y": r2[1],
             "node1_phase": get_scalar(n1["phase"]),
             "node2_phase": get_scalar(n2["phase"]),
+            "node1_current": node_currents[i],
+            "node2_current": node_currents[j],
             "center_x": center[0],
             "center_y": center[1],
             "vector_x": vector[0],

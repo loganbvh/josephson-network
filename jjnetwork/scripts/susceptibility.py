@@ -72,7 +72,7 @@ if __name__ == "__main__":
         "--fc-radius",
         type=float,
         default=1,
-        help="Radius of the field coild (loop of current).",
+        help="Radius of the field coil (loop of current).",
     )
     parser.add_argument(
         "--fc-current",

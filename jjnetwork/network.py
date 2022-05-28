@@ -4,17 +4,19 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from gekko import GEKKO
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
+import pint
 import scipy.linalg as la
 from tqdm import tqdm
 
 from .em import ureg, Phi_0, eV
+from .geometry import contains_points
 from .graph_utils import (
     get_scalar,
     basis_loops,
@@ -23,6 +25,8 @@ from .graph_utils import (
     draw_currents,
     edge_data_to_df,
     round_trip,
+    remove_isolated_islands,
+    remove_overlapping_islands,
 )
 from .io import DTFORMAT, NumpyJSONEncoder
 
@@ -33,7 +37,9 @@ class LoopInfo:
 
     nodes: list[int]
     applied_flux: float
-    total_flux: Optional[float] = None
+    current: Optional[float] = None
+    gauge_invariant_phase: Optional[float] = None
+    # total_flux: Optional[float] = None
     frustration: Optional[float] = None
     vortices: Optional[float] = None
 
@@ -62,6 +68,10 @@ def build_graph(
     josephson_energy_func: Callable,
     vector_potential_func: Callable,
     vector_potential_points: int = 21,
+    rng: Optional[np.random.Generator] = None,
+    source_points: Optional[np.ndarray] = None,
+    drain_points: Optional[np.ndarray] = None,
+    source_drain_current: Optional[float] = None,
     phase_initializer: Optional[Callable] = None,
 ) -> ModelInfo:
     """Generates the graph structure and populates it with gekko objects.
@@ -84,10 +94,24 @@ def build_graph(
             island phases.
     """
     print("Generating junctions and building model...")
+    if rng is None:
+        rng = np.random.default_rng()
+
     if phase_initializer is None:
         phase_initializer = lambda: 0.0  # noqa: E731
 
     m = gekko_model
+
+    if source_points is None:
+        assert drain_points is None
+        assert source_drain_current is None
+        source_nodes = []
+        drain_nodes = []
+    else:
+        assert drain_points is not None
+        assert source_drain_current is not None
+        source_nodes = contains_points(source_points, island_positions, index=True)
+        drain_nodes = contains_points(drain_points, island_positions, index=True)
 
     graph = nx.DiGraph()
     # Populate islands (nodes)
@@ -101,8 +125,8 @@ def build_graph(
             position=p,
             phase=m.Var(
                 value=phase_initializer(),
-                lb=0,
-                ub=2 * np.pi,
+                # lb=0,
+                # ub=2 * np.pi,
                 name=f"p{i}",
             ),
         )
@@ -138,14 +162,18 @@ def build_graph(
             # delta[i, j] is the phase difference between islands i and j:
             # delta[i, j] = phase[j] - phase[i]
             delta=m.Intermediate(
-                n2["phase"] - n1["phase"],
+                n1["phase"] - n2["phase"],
                 name=f"dp{n}",
             ),
             A=Aij,
         )
+        # attrs["delta"] = m.Var(value=2 * np.pi * Aij),
+        # m.Equation(attrs["delta"] == (n2["phase"] - n1["phase"]))
         attrs["Ic"] = 2 * np.pi / Phi_0 * attrs["EJ"]
         attrs["theta"] = m.Intermediate(
-            attrs["delta"] - (2 * np.pi * attrs["A"]), name=f"dA{n}"
+            # attrs["delta"] - (2 * np.pi * attrs["A"]),
+            2 * m.atan(m.tan((attrs["delta"] - (2 * np.pi * attrs["A"])) / 2)),
+            name=f"dA{n}",
         )
         attrs["current"] = m.Intermediate(
             attrs["Ic"] * m.sin(attrs["theta"]),
@@ -159,15 +187,28 @@ def build_graph(
     nx.set_edge_attributes(graph, edge_attrs)
 
     # Apply current conservation constraint
-    # One equality constraint per island
+    # One equality constraint per node
     node_current_in = defaultdict(list)
     node_current_out = defaultdict(list)
     for i, j, current in graph.edges.data("current"):
         node_current_in[j].append(current)
         node_current_out[i].append(current)
+    if source_drain_current is not None:
+        for i in source_nodes:
+            m.Equation(
+                1e0 * (sum(node_current_in[i]) - sum(node_current_out[i]))
+                == -1e0 * source_drain_current
+            )
+        for i in drain_nodes:
+            m.Equation(
+                1e0 * (sum(node_current_in[i]) - sum(node_current_out[i]))
+                == +1e0 * source_drain_current
+            )
     num_nodes = graph.number_of_nodes()
     for i in tqdm(graph.nodes, total=num_nodes, desc="Applying current conservation"):
-        m.Equation(sum(node_current_in[i]) == sum(node_current_out[i]))
+        if i in source_nodes or i in drain_nodes:
+            continue
+        m.Equation(1e0 * sum(node_current_in[i]) == 1e0 * sum(node_current_out[i]))
 
     # Apply phase single-valuedness constraint
     # One equality constraint per basis cycle
@@ -177,25 +218,51 @@ def build_graph(
     for n, loop in tqdm(
         enumerate(loops), total=len(loops), desc="Applying phase single-valuedness"
     ):
-        enclosed_flux = m.Var(value=0, name=f"f{n}")
         loop_phases = []
+        loop_deltas = []
         applied_flux = []
+        # excess_flux = m.Var(value=0, lb=0, ub=1, name=f"ef{n}")
         for i, j in round_trip(loop):
             # Needed to get the correct sign for all edges in the directed graph.
             if (i, j) in edges:
-                loop_phases.append(edges[i, j]["theta"])
-                applied_flux.append(edges[i, j]["A"])
+                loop_deltas.append(+1 * edges[i, j]["delta"])
+                loop_phases.append(+1 * edges[i, j]["theta"])
+                applied_flux.append(+1 * edges[i, j]["A"])
             else:
+                loop_deltas.append(-1 * edges[j, i]["delta"])
                 loop_phases.append(-1 * edges[j, i]["theta"])
                 applied_flux.append(-1 * edges[j, i]["A"])
+        loop_deltas = sum(loop_deltas)
+        applied_flux = sum(applied_flux)
+        excess_flux = m.Var(
+            value=0 * applied_flux,
+            # lb=min(applied_flux, 0),
+            # ub=max(0, applied_flux),
+            name=f"ef{n}",
+        )
+        # vortices = m.Var(
+        #     value=init_vorticity,
+        #     # lb=-abs_ceil,
+        #     # ub=+abs_ceil,
+        #     integer=True,
+        #     name=f"f{n}",
+        # )
+        loop_phase = sum(loop_phases)
         loop_info.append(
             LoopInfo(
                 nodes=loop,
-                applied_flux=sum(applied_flux),
-                total_flux=enclosed_flux,
+                applied_flux=applied_flux,
+                gauge_invariant_phase=loop_phase,
+                frustration=applied_flux,
+                # total_flux=enclosed_flux,
+                # vortices=vortices,
             )
         )
-        m.Equation(sum(loop_phases) == (2 * np.pi) * enclosed_flux)
+        # m.Equation(excess_flux + vortices == applied_flux)
+        # m.Equation(loop_phase / (2 * np.pi) == vortices - applied_flux)
+        m.Equation(sum(loop_phases) / (2 * np.pi) == excess_flux)
+        # m.Equation(loop_deltas / (2 * np.pi) == vortices)
+        # m.Equation(m.sin(loop_phase) == m.sin((2 * np.pi) * total_flux))
 
     # # Build Objective
     # # Not needed because number of DOF == 0.
@@ -222,25 +289,35 @@ def calculate_loop_info(
     edges = graph.edges
     loop_info = []
     for loop in loops:
+        current = []
         applied_flux = []
         loop_theta = []
+        loop_delta = []
         for i, j in round_trip(loop):
             if (i, j) in edges:
-                loop_theta.append(get_scalar(edges[i, j]["theta"]))
-                applied_flux.append(get_scalar(edges[i, j]["A"]))
+                current.append(+1 * get_scalar(edges[i, j]["current"]))
+                applied_flux.append(+1 * get_scalar(edges[i, j]["A"]))
+                loop_theta.append(+1 * get_scalar(edges[i, j]["theta"]))
+                loop_delta.append(+1 * get_scalar(edges[i, j]["delta"]))
             else:
-                loop_theta.append(-get_scalar(edges[j, i]["theta"]))
-                applied_flux.append(-get_scalar(edges[j, i]["A"]))
-        total_flux = sum(loop_theta) / (2 * np.pi)
-        applied_flux = sum(applied_flux)
-        frustration = np.fmod(total_flux, 1)
+                current.append(-1 * get_scalar(edges[j, i]["current"]))
+                applied_flux.append(-1 * get_scalar(edges[j, i]["A"]))
+                loop_theta.append(-1 * get_scalar(edges[j, i]["theta"]))
+                loop_delta.append(-1 * get_scalar(edges[j, i]["delta"]))
+        loop_current = sum(current)
+        loop_theta = sum(loop_theta)
+        loop_delta = sum(loop_delta)
+        frustration = applied_flux = sum(applied_flux)
+        vortices = applied_flux + loop_theta / (2 * np.pi)
+        # vortices = applied_flux + loop_theta / (2 * np.pi)
         loop_info.append(
             LoopInfo(
                 nodes=loop,
+                current=loop_current,
                 applied_flux=applied_flux,
-                total_flux=total_flux,
+                gauge_invariant_phase=loop_theta,
                 frustration=frustration,
-                vortices=(frustration - total_flux),
+                vortices=vortices,
             )
         )
     return loop_info
@@ -261,8 +338,13 @@ class JosephsonNetwork(ABC):
         gekko_verbose: An integer indicating the gekko verbosity level.
     """
 
+    ureg = ureg
+
     META_ATTRS = [
         "outdir",
+        "source_points",
+        "drain_points",
+        "source_drain_current",
         "length_units",
         "rng_seed",
         "gekko_remote",
@@ -274,10 +356,15 @@ class JosephsonNetwork(ABC):
         *,
         directory: os.PathLike,
         island_positions: np.ndarray,
+        island_diameter: Union[float, str, pint.Quantity],
+        junction_cutoff_radius: Union[float, str, pint.Quantity],
+        source_points: Optional[np.ndarray] = None,
+        drain_points: Optional[np.ndarray] = None,
+        source_drain_current: Optional[str] = None,
         length_units: str = "um",
         rng_seed: int = -1,
         gekko_local: bool = True,
-        gekko_verbose: int = 5,
+        gekko_verbose: int = 10,
     ):
         self.directory = os.path.abspath(directory)
         # Ensure a unique directory name for each simulation
@@ -300,20 +387,49 @@ class JosephsonNetwork(ABC):
             self.rng_seed = int(self.timing.run_start.timestamp())
         self.rng = np.random.default_rng(seed=self.rng_seed)
         self.island_positions = island_positions
+        if isinstance(island_diameter, str):
+            island_diameter = ureg(island_diameter)
+        if isinstance(island_diameter, pint.Quantity):
+            island_diameter = island_diameter.to(self.length_units).magnitude
+        self.island_diameter = island_diameter
+        if isinstance(junction_cutoff_radius, str):
+            junction_cutoff_radius = ureg(junction_cutoff_radius)
+        if isinstance(junction_cutoff_radius, pint.Quantity):
+            junction_cutoff_radius = junction_cutoff_radius.to(
+                self.length_units
+            ).magnitude
+        self.junction_cutoff_radius = junction_cutoff_radius
+        self.source_points = source_points
+        self.drain_points = drain_points
+        self.source_drain_current = source_drain_current
+        if self.source_drain_current is not None:
+            self.source_drain_current = ureg(self.source_drain_current)
         self.neighbors = None
         self.model_info = None
         self.gekko_model = None
         self.compute_neighbors()
 
-    @abstractmethod
     def compute_neighbors(self) -> None:
-        """Define neighboring or adjacent islands (nodes).
-
-        This method must update ``self.neighbors`` and can optionally update
-        ``self.island_positions``. This method must ensure that
-        ``len(self.neighbors) == len(self.island_positions)``.
-        """
-        pass
+        """Removes any overlapping or isolated islands."""
+        # Replace any set of overlapping islands with a single island located at
+        # the mean position of the set of islands.
+        self.island_positions = remove_overlapping_islands(
+            self.island_positions,
+            self.island_diameter,
+        )
+        print(
+            f"Total network size after removing overlapping islands: "
+            f"{self.island_positions.shape[0]} islands."
+        )
+        self.island_positions, self.neighbors = remove_isolated_islands(
+            self.island_positions,
+            self.junction_cutoff_radius,
+        )
+        print(
+            f"Total network size after removing isolated islands: "
+            f"{self.island_positions.shape[0]} islands."
+        )
+        assert len(self.neighbors) == len(self.island_positions)
 
     @abstractmethod
     def josephson_energy(self, junction_length: float) -> float:
@@ -361,10 +477,13 @@ class JosephsonNetwork(ABC):
             options = [
                 "minlp_as_nlp 0",
                 f"minlp_print_level {min(self.gekko_verbose, 10)}",
-                "minlp_integer_max 1.0e3",
-                "minlp_branch_method 1",
-                "nlp_maximum_iterations 1000",
-                "minlp_max_iter_with_int_sol 1000",
+                "minlp_integer_tol 1.0e-3",
+                "minlp_gap_tol 1.0e-3",
+                "minlp_branch_method 3",
+                # "minlp_integer_leaves 3",
+                # "minlp_integer_max 1.0e3",
+                # "nlp_maximum_iterations 1000",
+                # "minlp_max_iter_with_int_sol 1000",
             ]
             return solver_id, options
         elif solver == "apopt":
@@ -373,13 +492,19 @@ class JosephsonNetwork(ABC):
                 "minlp_as_nlp 1",
                 f"minlp_print_level {min(self.gekko_verbose, 10)}",
             ]
+            # solver_id = 2
+            # options = None
         else:
             solver_id = 3
             options = [
                 "nlp_scaling_method gradient-based",
                 "ma57_automatic_scaling yes",
                 f"print_level {max(self.gekko_verbose, 0)}",
+                "least_square_init_duals yes",
+                "least_square_init_primal yes",
             ]
+            # solver_id = 2
+            # options = None
         return solver_id, options
 
     def build_model(self) -> None:
@@ -400,18 +525,31 @@ class JosephsonNetwork(ABC):
         )
 
         if self.rng_seed:
-            init_phase = lambda: 1e-2 * self.rng.random()  # noqa: E731
+            init_phase = lambda: 1e-2 * (self.rng.random() - 0.5)  # noqa: E731
         else:
-            init_phase = lambda: 0  # noqa: E731
+            init_phase = None  # noqa: E731
 
         island_positions = (self.island_positions * self.length_units).to("m").magnitude
+        if self.source_points is None:
+            source_points = self.source_points
+            drain_points = self.drain_points
+            source_drain_current = self.source_drain_current
+        else:
+            source_points = (self.source_points * self.length_units).to("m").magnitude
+            drain_points = (self.drain_points * self.length_units).to("m").magnitude
+            source_drain_current = self.source_drain_current.to("A").magnitude
+
         self.model_info = build_graph(
             gekko_model=self.gekko_model,
             island_positions=island_positions,
             neighbors=self.neighbors,
             josephson_energy_func=self.josephson_energy,
             vector_potential_func=self.vector_potential,
+            source_points=source_points,
+            drain_points=drain_points,
+            source_drain_current=source_drain_current,
             phase_initializer=init_phase,
+            rng=self.rng,
         )
 
         fig, ax = draw_graph(self.graph)
@@ -440,6 +578,7 @@ class JosephsonNetwork(ABC):
         m.options.MAX_MEMORY = 6
         m.options.REDUCE = 100
         m.options.RTOL = 1e-6
+        m.options.OTOL = 1e-6
         m._path = self.outdir
 
         if self.gekko_remote:
@@ -458,6 +597,13 @@ class JosephsonNetwork(ABC):
             print("Solving NLP problem with APOPT...")
 
         m.solve(disp=True, debug=2)
+
+        if False:
+            solver_id, solver_options = self.solver_options("apopt", mixed_integer=True)
+            m.options.SOLVER = solver_id
+            m.solver_options = solver_options
+            print("Solving MINLP problem with APOPT...")
+            m.solve(disp=True, debug=2)
 
         self.timing.gekko_stop = datetime.now()
 
@@ -478,12 +624,16 @@ class JosephsonNetwork(ABC):
             applied_flux = np.array(
                 [get_scalar(loop.applied_flux) for loop in loop_info]
             )
-            total_flux = np.array([get_scalar(loop.total_flux) for loop in loop_info])
+            gauge_invariant_phase = np.array(
+                [get_scalar(loop.gauge_invariant_phase) for loop in loop_info]
+            )
+            # total_flux = np.array([get_scalar(loop.total_flux) for loop in loop_info])
             (nonzero_loops,) = np.where(np.abs(vortices) > 1e-3)
             loop_data = {f"node{i}": loops[:, i] for i in range(loops.shape[1] - 1)}
             loop_data.update(
                 {
-                    "total_flux": total_flux,
+                    # "total_flux": total_flux,
+                    "gauge_invariant_phase": gauge_invariant_phase,
                     "frustration": frustration,
                     "vortices": vortices,
                     "applied_flux": applied_flux,
