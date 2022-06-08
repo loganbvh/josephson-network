@@ -1,5 +1,4 @@
 from collections import defaultdict
-from numbers import Number
 from typing import Any, Sequence, Optional
 
 import matplotlib.pyplot as plt
@@ -17,14 +16,10 @@ from .geometry import (
 )
 
 
-def get_scalar(value):
-    """Converts a GEKKO variable into a Python scalar."""
-    if isinstance(value, Number):
-        return value
-    try:
-        return value[0]
-    except TypeError:
-        return value
+def get_node_positions(graph: nx.Graph) -> np.ndarray:
+    """Extract an array of node (x, y) positions."""
+    # Sort by node index because graph.nodes.data() returns unordered nodes.
+    return np.stack([pos for _, pos in sorted(graph.nodes.data("position"))], axis=0)
 
 
 def nearest_neighbors(points: np.ndarray, k_nn: int) -> tuple[np.ndarray, np.ndarray]:
@@ -103,7 +98,7 @@ def basis_loops(graph: nx.Graph, ensure_ccw: bool = True) -> list[list[int]]:
     assert all(len(loop) > 1 for loop in loops)
     loops = [close_curve(loop) for loop in loops]
     if ensure_ccw:
-        points = np.stack([p for _, p in sorted(graph.nodes.data("position"))], axis=0)
+        points = get_node_positions(graph)
         ccw_loops = []
         for loop in loops:
             ccw = is_ccw(points[loop])
@@ -163,7 +158,7 @@ def find_all_cells(graph: nx.Graph, length: int = 4) -> np.ndarray:
             unique_loops.append(loop)
             seen.add(frozenset(loop))
     cells = np.array(unique_loops)
-    points = np.stack([p for _, p in sorted(graph.nodes.data("position"))], axis=0)
+    points = get_node_positions(graph)
     # Ensure polygons are CCW
     areas = polygon_areas(points, cells[:, :-1])
     clockwise = areas < 0
@@ -243,8 +238,8 @@ def extract_edge_data(graph: nx.Graph) -> dict[tuple[int], float]:
     node_current_in = defaultdict(list)
     node_current_out = defaultdict(list)
     for i, j, current in graph.edges.data("current"):
-        node_current_in[j].append(get_scalar(current))
-        node_current_out[i].append(get_scalar(current))
+        node_current_in[j].append(current)
+        node_current_out[i].append(current)
     node_currents = [sum(node_current_in[i]) - sum(node_current_out[i]) for i in nodes]
     edge_data = {}
     for i, j, data in graph.edges.data():
@@ -259,8 +254,8 @@ def extract_edge_data(graph: nx.Graph) -> dict[tuple[int], float]:
             "node1_y": r1[1],
             "node2_x": r2[0],
             "node2_y": r2[1],
-            "node1_phase": get_scalar(n1["phase"]),
-            "node2_phase": get_scalar(n2["phase"]),
+            "node1_phase": n1["phase"],
+            "node2_phase": n2["phase"],
             "node1_current": node_currents[i],
             "node2_current": node_currents[j],
             "center_x": center[0],
@@ -268,7 +263,7 @@ def extract_edge_data(graph: nx.Graph) -> dict[tuple[int], float]:
             "vector_x": vector[0],
             "vector_y": vector[1],
         }
-        edge_data[(i, j)].update({k: get_scalar(v) for k, v in data.items()})
+        edge_data[(i, j)].update(data)
     return edge_data
 
 
@@ -299,7 +294,7 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
                 phase=np.array([row[f"node{label}_phase"], row[f"node{label}_phase"]]),
             )
         nx.set_node_attributes(graph, node_attrs)
-        edge_attrs = ["length", "EJ", "A", "delta", "theta", "current", "energy"]
+        edge_attrs = ["length", "EJ", "Aij", "delta", "theta", "current", "energy"]
         nx.set_edge_attributes(graph, {(i, j): {key: row[key] for key in edge_attrs}})
     return graph
 
@@ -318,7 +313,7 @@ def draw_graph(
         fig = ax.figure
     ax.set_aspect("equal")
     pos = nx.get_node_attributes(graph, "position")
-    coords = np.stack([p for _, p in sorted(graph.nodes.data("position"))], axis=0)
+    coords = get_node_positions(graph)
     kwargs["arrows"] = False
     kwargs["node_size"] = kwargs.get("node_size", 1)
     nx.draw(graph, pos, ax=ax, **kwargs)
