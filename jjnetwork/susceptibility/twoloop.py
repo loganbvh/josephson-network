@@ -74,6 +74,12 @@ class TwoLoopModel(JosephsonNetwork):
             la.norm(island_positions - self.fc_center[:, :2], axis=1)
             <= self.patch_radius
         ]
+        # island_positions = island_positions[
+        #     (np.abs(island_positions[:, 0] - self.fc_center[:, 0]) <= self.patch_radius)
+        #     & (np.abs(island_positions[:, 1] - self.fc_center[:, 1]) <= self.patch_radius)
+        # ]
+        ix = np.argsort(island_positions[:, 0])
+        island_positions = island_positions[ix]
         kwargs["island_positions"] = island_positions
         print(f"Total patch size: {island_positions.shape[0]} islands.")
         self.junction_d0 = junction_d0
@@ -171,9 +177,11 @@ class TwoLoopModel(JosephsonNetwork):
         ) * length_scale
         ax.plot(fc[:, 0], fc[:, 1], "C1-", lw=3)
         ax.plot(pl[:, 0], pl[:, 1], "C2-", lw=3)
-        ax.set_title(os.path.basename(self.outdir))
-        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        ax.set_title(os.path.basename(self.basedir))
+        fig.savefig(os.path.join(self.basedir, "graph.pdf"), bbox_inches="tight")
         plt.close(fig)
+
+        energy = sum(energy for _, _, energy in graph.edges.data("energy"))
 
         df = gu.edge_data_to_df(graph)
         fig, axes = gu.draw_currents(df, linewidth=3, cmap="inferno")
@@ -182,7 +190,8 @@ class TwoLoopModel(JosephsonNetwork):
             (
                 f"Junction I0: {self.junction_I0}, "
                 f"FC current: {self.fc_current:.2f~P}, "
-                f"Susceptibility: {mutual:.3e~P}"
+                f"Susceptibility: {mutual:.3e~P}, "
+                f"Energy: {energy:.4e} eV"
             ),
         ]
         fig.suptitle("\n".join(title))

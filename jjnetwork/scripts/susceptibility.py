@@ -13,6 +13,11 @@ if __name__ == "__main__":
         choices=("twoloop", "squid"),
     )
     parser.add_argument(
+        "--starts",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
         "--length-units",
         type=str,
         default="um",
@@ -96,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--junction-cutoff-radius",
         type=float,
-        default=0.9,
+        default=0.7,
         help=(
             "Neighbors within this distance from a given island "
             "are assumed to form junctions."
@@ -148,18 +153,11 @@ if __name__ == "__main__":
             "If rng-seed is 0, junctions are initialized to zero."
         ),
     )
-    parser.add_argument("--gekko-local", action="store_true", help="Run GEKKO locally.")
-    parser.add_argument(
-        "--gekko-verbose",
-        type=int,
-        default=5,
-        choices=range(0, 13),
-        help="Verbosity level for optimizer output.",
-    )
 
     args = parser.parse_args()
     kwargs = vars(args)
     model_type = kwargs.pop("model")
+    number_of_starts = kwargs.pop("starts")
 
     if model_type == "twoloop":
         model_cls = TwoLoopModel
@@ -189,4 +187,4 @@ if __name__ == "__main__":
     kwargs["island_positions"] = island_positions
 
     model = model_cls(**kwargs)
-    model.run()
+    model.run_multistart(number_of_starts=number_of_starts)

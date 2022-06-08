@@ -96,7 +96,6 @@ class SSMModel(JosephsonNetwork):
         squid_position: Sequence[float],
         fc_current: str,
         patch_radius_factor: float,
-        junction_cutoff_radius: str,
         junction_d0: str,
         junction_I0: str,
         junction_length_dependence: str = "power_law",
@@ -195,8 +194,8 @@ class SSMModel(JosephsonNetwork):
             points = polygon.points
             points = (points * ureg(self.squid.length_units)).to("m").magnitude
             ax.plot(points[:, 0], points[:, 1], "C1-")
-        ax.set_title(os.path.basename(self.outdir))
-        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        ax.set_title(os.path.basename(self.basedir))
+        fig.savefig(os.path.join(self.basedir, "graph.pdf"), bbox_inches="tight")
         plt.close(fig)
 
         df = gu.edge_data_to_df(graph)
