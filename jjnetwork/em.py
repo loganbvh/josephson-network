@@ -6,6 +6,7 @@ import pint
 from scipy import special
 import scipy.linalg as la
 
+
 ureg = pint.UnitRegistry()
 mu_0 = ureg("mu_0").to_base_units().magnitude
 Phi_0 = ureg("Phi_0").to_base_units().magnitude
@@ -19,7 +20,7 @@ def biot_savart(
     current_vectors: np.ndarray,
     currents: np.ndarray,
 ) -> np.ndarray:
-    """Calculates the vector magnetic field [Bx, By, Bx] at ``eval_positions``
+    """Calculates the vector magnetic field [Bx, By, Bz] at ``eval_positions``
     due to a discrete set of 1D current elements.
 
     Input units are meters and Amperes, output units are Tesla.
@@ -42,10 +43,10 @@ def biot_savart(
     current_positions = np.atleast_2d(current_positions)
     current_vectors = np.atleast_2d(current_vectors)
     currents = np.atleast_2d(currents)
-    assert eval_positions.shape[-1] == 3
-    assert current_positions.shape[-1] == 3
-    assert current_vectors.shape[-1] == 3
-    assert currents.shape[-1] == 1
+    assert eval_positions.shape[-1] == 3, eval_positions.shape
+    assert current_positions.shape[-1] == 3, current_positions.shape
+    assert current_vectors.shape[-1] == 3, current_vectors.shape
+    assert currents.shape[-1] == 1, currents.shape
 
     dx = np.subtract.outer(eval_positions[:, 0], current_positions[:, 0])
     dy = np.subtract.outer(eval_positions[:, 1], current_positions[:, 1])
@@ -204,7 +205,7 @@ def calculate_field_from_graph(
         edge_currents.append(data["current"])
     edge_centers = np.stack(edge_centers, axis=0)
     edge_vectors = np.stack(edge_vectors, axis=0)
-    edge_currents = np.array(edge_currents)
+    edge_currents = np.array(edge_currents)[:, np.newaxis]
     # Add a zero z coordinate
     edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
     edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
@@ -214,3 +215,114 @@ def calculate_field_from_graph(
         current_vectors=edge_vectors,
         currents=edge_currents,
     )
+
+
+# def calculate_vector_potential_from_graph(
+#     positions: np.ndarray,
+#     graph: nx.DiGraph,
+#     length_units: str = "um",
+# ) -> np.ndarray:
+#     positions = np.atleast_2d(positions)
+#     if not isinstance(positions, pint.Quantity):
+#         positions = positions * ureg(length_units)
+#     positions = positions.to("m").magnitude
+#     # Extract edge data from the graph
+#     nodes = graph.nodes
+#     edge_centers = []
+#     edge_vectors = []
+#     edge_currents = []
+#     for i, j, data in graph.edges.data():
+#         n1 = nodes[i]
+#         n2 = nodes[j]
+#         r1 = n1["position"]
+#         r2 = n2["position"]
+#         edge_centers.append((r1 + r2) / 2)
+#         edge_vectors.append(r2 - r1)
+#         edge_currents.append(data["current"])
+#     edge_centers = np.stack(edge_centers, axis=0)
+#     edge_vectors = np.stack(edge_vectors, axis=0)
+#     edge_currents = np.array(edge_currents)[:, np.newaxis]
+#     # Add a zero z coordinate
+#     edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
+#     edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
+#     unit_vectors = unit_vector(edge_vectors)
+#     rho = distance.cdist(positions, edge_centers)
+#     rho[rho == 0] = np.nan
+#     integrand = (edge_currents * unit_vectors) / rho[:, :, np.newaxis]
+#     return mu_0 / (4 * np.pi) * np.nansum(integrand, axis=1) * ureg("T * m")
+
+
+# def mutual_vector_potential_matrix(graph: nx.DiGraph):
+#     nodes = graph.nodes
+#     edge_centers = []
+#     edge_vectors = []
+#     for i, j, data in graph.edges.data():
+#         n1 = nodes[i]
+#         n2 = nodes[j]
+#         r1 = n1["position"]
+#         r2 = n2["position"]
+#         edge_centers.append((r1 + r2) / 2)
+#         edge_vectors.append(r2 - r1)
+#     edge_centers = np.stack(edge_centers, axis=0)
+#     edge_vectors = np.stack(edge_vectors, axis=0)
+#     # Add a zero z coordinate
+#     edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
+#     edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
+#     unit_currents = unit_vector(edge_vectors)
+#     rho = distance.cdist(edge_centers, edge_centers)
+#     rho[rho == 0] = np.nan
+#     MAij = unit_currents / rho[:, :, np.newaxis]
+#     MAij[np.isnan(MAij)] = 0
+#     MAij_x = MAij[:, :, 0] * edge_vectors[:, 0]
+#     MAij_y = MAij[:, :, 1] * edge_vectors[:, 1]
+#     MAij = np.stack([MAij_x, MAij_y], axis=0)
+#     return mu_0 / (4 * np.pi) * MAij * ureg("T * m / A")
+
+
+# def edge_sign(row):
+#     return np.power(-1, np.equal(row, edges).all(axis=1).any())
+
+
+# def mutual_inductance_matrix(graph: nx.DiGraph, loops: list[list[int]]):
+#     num_edges = graph.number_of_edges()
+#     num_loops = len(loops)
+#     edge_centers = []
+#     edge_vectors = []
+#     for i, j, data in graph.edges.data():
+#         n1 = nodes[i]
+#         n2 = nodes[j]
+#         r1 = n1["position"]
+#         r2 = n2["position"]
+#         edge_centers.append((r1 + r2) / 2)
+#         edge_vectors.append(r2 - r1)
+#     edge_centers = np.stack(edge_centers, axis=0)
+#     edge_vectors = np.stack(edge_vectors, axis=0)
+#     # # Add a zero z coordinate
+#     # edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
+#     # edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
+
+#     MAij = mutual_vector_potential_matrix(graph).magnitude
+
+#     Mij = np.zeros((num_loops, num_loops))
+#     edge_indices = {tuple(edge): i for i, edge in enumerate(graph.edges)}
+#     edge_indices.update({tuple(edge)[::-1]: i for i, edge in enumerate(graph.edges)})
+#     round_trips = [gu.round_trip(loop) for loop in loops]
+#     loop_edge_indices = [
+#         [edge_indices[edge] for edge in loop]
+#         for loop in round_trips
+#     ]
+#     edge_signs = [
+#         np.apply_along_axis(edge_sign, 1, loop)
+#         for loop in round_trips
+#     ]
+#     for ell in tqdm(range(num_loops)):
+#         currents = np.zeros(num_edges)
+#         ell_indices = loop_edge_indices[ell]
+#         currents[ell_indices] = edge_signs[ell]
+#         Aij = MAij @ currents
+
+#         for k in range(num_loops):
+#             k_signs = edge_signs[k][np.newaxis, :]
+#             k_indices = loop_edge_indices[k]
+#             Mij[ell, k] = np.sum(k_signs * Aij[:, k_indices])
+#     return Mij / Phi_0
