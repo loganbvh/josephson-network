@@ -1,83 +1,84 @@
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime
+import functools
 import json
 import os
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Sequence, Union
+import warnings
 
-from gekko import GEKKO
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
 import pint
-import scipy.linalg as la
+import pyomo.environ as pyo
+from pyomo import opt
+from pyomo.common.tempfiles import TempfileManager
+from scipy.spatial import distance
 from tqdm import tqdm
 
-from .em import ureg, Phi_0, eV
+from .em import ureg, Phi_0
 from .geometry import contains_points
 from .graph_utils import (
-    get_scalar,
     basis_loops,
-    find_all_cells,
     draw_graph,
     draw_currents,
     edge_data_to_df,
-    round_trip,
+    find_all_cells,
     remove_isolated_islands,
     remove_overlapping_islands,
 )
 from .io import DTFORMAT, NumpyJSONEncoder
-
-
-@dataclass
-class LoopInfo:
-    """A container for data related to a single loop (closed path) in a network."""
-
-    nodes: list[int]
-    applied_flux: float
-    current: Optional[float] = None
-    gauge_invariant_phase: Optional[float] = None
-    # total_flux: Optional[float] = None
-    frustration: Optional[float] = None
-    vortices: Optional[float] = None
-
-
-@dataclass
-class ModelInfo:
-    graph: nx.DiGraph
-    loops: list[LoopInfo]
+from .pyomo_model import (
+    ModelInfo,
+    calculate_loop_info,
+    model_to_graph,
+    graph_to_model,
+    initialize_variables,
+    LoopInfo,
+)
 
 
 @dataclass
 class TimingInfo:
     run_start: Optional[datetime] = None
-    build_start: Optional[datetime] = None
     run_stop: Optional[datetime] = None
-    run_time: Optional[float] = None
-    gekko_start: Optional[datetime] = None
-    gekko_stop: Optional[datetime] = None
+    build_start: Optional[datetime] = None
+    build_stop: Optional[datetime] = None
+    solve_start: Optional[datetime] = None
+    solve_stop: Optional[datetime] = None
+
+    @property
+    def build_time(self) -> int:
+        if self.build_start is None or self.build_stop is None:
+            return None
+        return (self.build_stop - self.build_start).total_seconds()
+
+    @property
+    def solve_time(self) -> int:
+        if self.solve_start is None or self.solve_stop is None:
+            return None
+        return (self.solve_stop - self.solve_start).total_seconds()
+
+    @property
+    def total_time(self) -> int:
+        if self.run_start is None or self.run_stop is None:
+            return None
+        return (self.run_stop - self.run_start).total_seconds()
 
 
 def build_graph(
-    *,
-    gekko_model: GEKKO,
     island_positions: np.ndarray,
     neighbors: list[list[int]],
     josephson_energy_func: Callable,
     vector_potential_func: Callable,
     vector_potential_points: int = 21,
-    rng: Optional[np.random.Generator] = None,
-    source_points: Optional[np.ndarray] = None,
-    drain_points: Optional[np.ndarray] = None,
-    source_drain_current: Optional[float] = None,
-    phase_initializer: Optional[Callable] = None,
-) -> ModelInfo:
-    """Generates the graph structure and populates it with gekko objects.
+) -> tuple[nx.DiGraph, Sequence[int], Sequence[int], float]:
+    """Generates the network.
 
     Args:
-        gekko_model: gekko.GEKKO model object.
         island_positions: Shape (n, 2) array of island (x, y) positions in meters.
         neighbors: Length n list of lists of neighbor indices.
         josephson_energy_func: A callable with signature
@@ -89,30 +90,8 @@ def build_graph(
             to evaluate the vector potential.
         vector_potential_points: Number of points used to approximate the line
             integral of the vector potential along each junction.
-        phase_initializer: A callable with signature
-            ``phase_initializer() -> guess_phase``, producing initial guesses for
-            island phases.
     """
-    print("Generating junctions and building model...")
-    if rng is None:
-        rng = np.random.default_rng()
-
-    if phase_initializer is None:
-        phase_initializer = lambda: 0.0  # noqa: E731
-
-    m = gekko_model
-
-    if source_points is None:
-        assert drain_points is None
-        assert source_drain_current is None
-        source_nodes = []
-        drain_nodes = []
-    else:
-        assert drain_points is not None
-        assert source_drain_current is not None
-        source_nodes = contains_points(source_points, island_positions, index=True)
-        drain_nodes = contains_points(drain_points, island_positions, index=True)
-
+    distances = distance.cdist(island_positions, island_positions)
     graph = nx.DiGraph()
     # Populate islands (nodes)
     for i, p in tqdm(
@@ -123,12 +102,6 @@ def build_graph(
         graph.add_node(
             i,
             position=p,
-            phase=m.Var(
-                value=phase_initializer(),
-                # lb=0,
-                # ub=2 * np.pi,
-                name=f"p{i}",
-            ),
         )
     # Popualate junctions (edges)
     for i, indices in enumerate(neighbors):
@@ -136,10 +109,8 @@ def build_graph(
             if (i, j) not in graph.edges and (j, i) not in graph.edges:
                 graph.add_edge(i, j)
     nodes = graph.nodes
-    # Store gekko objects as graph edge attributes.
-    edge_attrs = {}
-    for n, (i, j) in tqdm(
-        enumerate(graph.edges),
+    for i, j, attrs in tqdm(
+        graph.edges.data(),
         total=graph.number_of_edges(),
         desc="Populating junctions",
     ):
@@ -155,172 +126,16 @@ def build_graph(
         dr = np.diff(rs, axis=0)
         A = vector_potential_func(rs[:-1])
         Aij = np.trapz(np.sum(A * dr, axis=1)) / Phi_0
-        length = la.norm(r2 - r1)
-        attrs = dict(
-            length=length,
-            EJ=josephson_energy_func(length),
-            # delta[i, j] is the phase difference between islands i and j:
-            # delta[i, j] = phase[j] - phase[i]
-            delta=m.Intermediate(
-                n1["phase"] - n2["phase"],
-                name=f"dp{n}",
-            ),
-            A=Aij,
-        )
-        # attrs["delta"] = m.Var(value=2 * np.pi * Aij),
-        # m.Equation(attrs["delta"] == (n2["phase"] - n1["phase"]))
-        attrs["Ic"] = 2 * np.pi / Phi_0 * attrs["EJ"]
-        attrs["theta"] = m.Intermediate(
-            # attrs["delta"] - (2 * np.pi * attrs["A"]),
-            2 * m.atan(m.tan((attrs["delta"] - (2 * np.pi * attrs["A"])) / 2)),
-            name=f"dA{n}",
-        )
-        attrs["current"] = m.Intermediate(
-            attrs["Ic"] * m.sin(attrs["theta"]),
-            name=f"c{n}",
-        )
-        attrs["energy"] = m.Intermediate(
-            attrs["EJ"] * (1 - m.cos(attrs["theta"])) / eV,
-            name=f"e{n}",
-        )
-        edge_attrs[(i, j)] = attrs
-    nx.set_edge_attributes(graph, edge_attrs)
-
-    # Apply current conservation constraint
-    # One equality constraint per node
-    node_current_in = defaultdict(list)
-    node_current_out = defaultdict(list)
-    for i, j, current in graph.edges.data("current"):
-        node_current_in[j].append(current)
-        node_current_out[i].append(current)
-    if source_drain_current is not None:
-        for i in source_nodes:
-            m.Equation(
-                1e0 * (sum(node_current_in[i]) - sum(node_current_out[i]))
-                == -1e0 * source_drain_current
-            )
-        for i in drain_nodes:
-            m.Equation(
-                1e0 * (sum(node_current_in[i]) - sum(node_current_out[i]))
-                == +1e0 * source_drain_current
-            )
-    num_nodes = graph.number_of_nodes()
-    for i in tqdm(graph.nodes, total=num_nodes, desc="Applying current conservation"):
-        if i in source_nodes or i in drain_nodes:
-            continue
-        m.Equation(1e0 * sum(node_current_in[i]) == 1e0 * sum(node_current_out[i]))
-
-    # Apply phase single-valuedness constraint
-    # One equality constraint per basis cycle
-    edges = graph.edges
-    loops = basis_loops(graph)
-    loop_info = []
-    for n, loop in tqdm(
-        enumerate(loops), total=len(loops), desc="Applying phase single-valuedness"
-    ):
-        loop_phases = []
-        loop_deltas = []
-        applied_flux = []
-        # excess_flux = m.Var(value=0, lb=0, ub=1, name=f"ef{n}")
-        for i, j in round_trip(loop):
-            # Needed to get the correct sign for all edges in the directed graph.
-            if (i, j) in edges:
-                loop_deltas.append(+1 * edges[i, j]["delta"])
-                loop_phases.append(+1 * edges[i, j]["theta"])
-                applied_flux.append(+1 * edges[i, j]["A"])
-            else:
-                loop_deltas.append(-1 * edges[j, i]["delta"])
-                loop_phases.append(-1 * edges[j, i]["theta"])
-                applied_flux.append(-1 * edges[j, i]["A"])
-        loop_deltas = sum(loop_deltas)
-        applied_flux = sum(applied_flux)
-        excess_flux = m.Var(
-            value=0 * applied_flux,
-            # lb=min(applied_flux, 0),
-            # ub=max(0, applied_flux),
-            name=f"ef{n}",
-        )
-        # vortices = m.Var(
-        #     value=init_vorticity,
-        #     # lb=-abs_ceil,
-        #     # ub=+abs_ceil,
-        #     integer=True,
-        #     name=f"f{n}",
-        # )
-        loop_phase = sum(loop_phases)
-        loop_info.append(
-            LoopInfo(
-                nodes=loop,
-                applied_flux=applied_flux,
-                gauge_invariant_phase=loop_phase,
-                frustration=applied_flux,
-                # total_flux=enclosed_flux,
-                # vortices=vortices,
+        length = distances[i, j]
+        EJ = josephson_energy_func(length)
+        attrs.update(
+            dict(
+                length=length,
+                EJ=EJ,
+                Aij=Aij,
             )
         )
-        # m.Equation(excess_flux + vortices == applied_flux)
-        # m.Equation(loop_phase / (2 * np.pi) == vortices - applied_flux)
-        m.Equation(sum(loop_phases) / (2 * np.pi) == excess_flux)
-        # m.Equation(loop_deltas / (2 * np.pi) == vortices)
-        # m.Equation(m.sin(loop_phase) == m.sin((2 * np.pi) * total_flux))
-
-    # # Build Objective
-    # # Not needed because number of DOF == 0.
-    # m.Minimize(m.sum([energy for _, _, energy in graph.edges.data("energy")]))
-
-    model_info = ModelInfo(graph=graph, loops=loop_info)
-
-    msg = (
-        f"Finished building model with {graph.number_of_nodes()} islands, "
-        f"{graph.number_of_edges()} junctions, and {len(loops)} loops."
-    )
-    print(msg)
-    return model_info
-
-
-def calculate_loop_info(
-    graph: nx.DiGraph, length: Optional[int] = None
-) -> list[LoopInfo]:
-    """Generates LoopInfo instances for all basis loops in a network."""
-    if length is None:
-        loops = basis_loops(graph)
-    else:
-        loops = find_all_cells(graph, length)
-    edges = graph.edges
-    loop_info = []
-    for loop in loops:
-        current = []
-        applied_flux = []
-        loop_theta = []
-        loop_delta = []
-        for i, j in round_trip(loop):
-            if (i, j) in edges:
-                current.append(+1 * get_scalar(edges[i, j]["current"]))
-                applied_flux.append(+1 * get_scalar(edges[i, j]["A"]))
-                loop_theta.append(+1 * get_scalar(edges[i, j]["theta"]))
-                loop_delta.append(+1 * get_scalar(edges[i, j]["delta"]))
-            else:
-                current.append(-1 * get_scalar(edges[j, i]["current"]))
-                applied_flux.append(-1 * get_scalar(edges[j, i]["A"]))
-                loop_theta.append(-1 * get_scalar(edges[j, i]["theta"]))
-                loop_delta.append(-1 * get_scalar(edges[j, i]["delta"]))
-        loop_current = sum(current)
-        loop_theta = sum(loop_theta)
-        loop_delta = sum(loop_delta)
-        frustration = applied_flux = sum(applied_flux)
-        vortices = applied_flux + loop_theta / (2 * np.pi)
-        # vortices = applied_flux + loop_theta / (2 * np.pi)
-        loop_info.append(
-            LoopInfo(
-                nodes=loop,
-                current=loop_current,
-                applied_flux=applied_flux,
-                gauge_invariant_phase=loop_theta,
-                frustration=frustration,
-                vortices=vortices,
-            )
-        )
-    return loop_info
+    return graph
 
 
 class JosephsonNetwork(ABC):
@@ -334,21 +149,21 @@ class JosephsonNetwork(ABC):
             initialization. If set to zero, phases will be initialized to zero. If set
             to -1, rng_seed will be changed to the timestamp of the start of the
             simulation.
-        gekko_local: Whether to run gekko locally.
-        gekko_verbose: An integer indicating the gekko verbosity level.
     """
 
     ureg = ureg
 
     META_ATTRS = [
+        "basedir",
         "outdir",
-        "source_points",
-        "drain_points",
+        "island_diameter",
+        "junction_cutoff_radius",
+        "source_nodes",
+        "drain_nodes",
         "source_drain_current",
         "length_units",
-        "rng_seed",
-        "gekko_remote",
-        "gekko_verbose",
+        "base_rng_seed",
+        "solve_iteration",
     ]
 
     def __init__(
@@ -360,33 +175,32 @@ class JosephsonNetwork(ABC):
         junction_cutoff_radius: Union[float, str, pint.Quantity],
         source_points: Optional[np.ndarray] = None,
         drain_points: Optional[np.ndarray] = None,
-        source_drain_current: Optional[str] = None,
+        source_drain_current: Optional[Union[str, float]] = None,
         length_units: str = "um",
         rng_seed: int = -1,
-        gekko_local: bool = True,
-        gekko_verbose: int = 10,
     ):
-        self.directory = os.path.abspath(directory)
+        directory = os.path.abspath(directory)
         # Ensure a unique directory name for each simulation
         i = 0
         run_start = datetime.now()
-        outdir = os.path.join(directory, run_start.strftime(DTFORMAT) + f"_{i:03}")
-        while os.path.exists(outdir):
+        basedir = os.path.join(directory, run_start.strftime(DTFORMAT) + f"_{i:03}")
+        while os.path.exists(basedir):
             i += 1
             run_start = datetime.now()
-            outdir = os.path.join(directory, run_start.strftime(DTFORMAT) + f"_{i:03}")
-        self.outdir = os.path.abspath(outdir)
-        os.makedirs(self.outdir)
-        self.json_file = os.path.join(outdir, "metadata.json")
+            basedir = os.path.join(directory, run_start.strftime(DTFORMAT) + f"_{i:03}")
+        self.basedir = os.path.abspath(basedir)
+        os.makedirs(self.basedir)
+        self.solve_iteration = 0
         self.timing = TimingInfo(run_start=run_start)
         self.length_units = ureg(length_units)
-        self.gekko_local = gekko_local
-        self.gekko_verbose = gekko_verbose
-        self.rng_seed = int(rng_seed)
-        if self.rng_seed == -1:
-            self.rng_seed = int(self.timing.run_start.timestamp())
-        self.rng = np.random.default_rng(seed=self.rng_seed)
+        rng_seed = int(rng_seed)
+        if rng_seed == -1:
+            rng_seed = int(self.timing.run_start.timestamp())
+        self.base_rng_seed = rng_seed
+
+        island_positions = np.atleast_2d(island_positions)
         self.island_positions = island_positions
+
         if isinstance(island_diameter, str):
             island_diameter = ureg(island_diameter)
         if isinstance(island_diameter, pint.Quantity):
@@ -399,36 +213,81 @@ class JosephsonNetwork(ABC):
                 self.length_units
             ).magnitude
         self.junction_cutoff_radius = junction_cutoff_radius
-        self.source_points = source_points
-        self.drain_points = drain_points
-        self.source_drain_current = source_drain_current
-        if self.source_drain_current is not None:
-            self.source_drain_current = ureg(self.source_drain_current)
-        self.neighbors = None
-        self.model_info = None
-        self.gekko_model = None
         self.compute_neighbors()
+        self.model_info = ModelInfo()
+        self.pyomo_result = None
+        self._basis_cycles = None
+        self.find_cells = None
+
+        if isinstance(source_drain_current, str):
+            source_drain_current = ureg(self.source_drain_current)
+        elif isinstance(source_drain_current, (int, float)):
+            source_drain_current = source_drain_current * ureg("A")
+        if source_points is None:
+            assert drain_points is None
+            assert source_drain_current is None
+            source_drain_current = 0
+            source_nodes = []
+            drain_nodes = []
+        else:
+            assert drain_points is not None
+            assert source_drain_current is not None
+            source_drain_current = source_drain_current.to("A").magnitude
+            source_nodes = contains_points(source_points, island_positions, index=True)
+            drain_nodes = contains_points(drain_points, island_positions, index=True)
+        self.source_drain_current = source_drain_current
+        self.source_nodes = source_nodes
+        self.drain_nodes = drain_nodes
+
+    def basis_cycles(self) -> list[list[int]]:
+        if self.graph is None:
+            return None
+        if self._basis_cycles is None:
+            self._basis_cycles = basis_loops(self.graph)
+        return self._basis_cycles
+
+    @property
+    def outdir(self) -> os.PathLike:
+        outdir = os.path.join(self.basedir, f"{self.solve_iteration:03}")
+        os.makedirs(outdir, exist_ok=True)
+        return outdir
+
+    @property
+    def json_file(self) -> os.PathLike:
+        return os.path.join(self.outdir, "metadata.json")
+
+    @property
+    def rng_seed(self) -> int:
+        if self.base_rng_seed:
+            return self.base_rng_seed + self.solve_iteration
+        return self.base_rng_seed
+
+    def make_rng(self) -> np.random.Generator:
+        return np.random.default_rng(self.rng_seed)
 
     def compute_neighbors(self) -> None:
         """Removes any overlapping or isolated islands."""
         # Replace any set of overlapping islands with a single island located at
         # the mean position of the set of islands.
-        self.island_positions = remove_overlapping_islands(
-            self.island_positions,
+        island_positions = self.island_positions
+        island_positions = remove_overlapping_islands(
+            island_positions,
             self.island_diameter,
         )
         print(
             f"Total network size after removing overlapping islands: "
-            f"{self.island_positions.shape[0]} islands."
+            f"{island_positions.shape[0]} islands."
         )
-        self.island_positions, self.neighbors = remove_isolated_islands(
-            self.island_positions,
+        island_positions, neighbors = remove_isolated_islands(
+            island_positions,
             self.junction_cutoff_radius,
         )
         print(
             f"Total network size after removing isolated islands: "
-            f"{self.island_positions.shape[0]} islands."
+            f"{island_positions.shape[0]} islands."
         )
+        self.island_positions = island_positions
+        self.neighbors = neighbors
         assert len(self.neighbors) == len(self.island_positions)
 
     @abstractmethod
@@ -444,20 +303,16 @@ class JosephsonNetwork(ABC):
         pass
 
     @property
-    def gekko_remote(self) -> bool:
-        return not self.gekko_local
-
-    @property
     def graph(self) -> Optional[nx.DiGraph]:
-        if self.model_info is None:
-            return None
         return self.model_info.graph
 
     @property
     def loops(self) -> Optional[LoopInfo]:
-        if self.model_info is None:
-            return None
         return self.model_info.loops
+
+    @property
+    def model(self) -> Optional[pyo.ConcreteModel]:
+        return self.model_info.model
 
     def metadata(self, **kwargs) -> dict[str, Any]:
         meta = kwargs.copy()
@@ -465,210 +320,228 @@ class JosephsonNetwork(ABC):
         meta["timing"] = asdict(self.timing)
         return meta
 
-    def solver_options(
-        self, solver: str, mixed_integer: bool = False
-    ) -> tuple[int, list[str]]:
-        """Returns the appropriate solver ID and options for a given NLP problem type."""
-        solver = solver.lower()
-        assert solver in {"ipopt", "apopt"}
-        if mixed_integer:
-            assert solver == "apopt"
-            solver_id = 1
-            options = [
-                "minlp_as_nlp 0",
-                f"minlp_print_level {min(self.gekko_verbose, 10)}",
-                "minlp_integer_tol 1.0e-3",
-                "minlp_gap_tol 1.0e-3",
-                "minlp_branch_method 3",
-                # "minlp_integer_leaves 3",
-                # "minlp_integer_max 1.0e3",
-                # "nlp_maximum_iterations 1000",
-                # "minlp_max_iter_with_int_sol 1000",
-            ]
-            return solver_id, options
-        elif solver == "apopt":
-            solver_id = 1
-            options = [
-                "minlp_as_nlp 1",
-                f"minlp_print_level {min(self.gekko_verbose, 10)}",
-            ]
-            # solver_id = 2
-            # options = None
-        else:
-            solver_id = 3
-            options = [
-                "nlp_scaling_method gradient-based",
-                "ma57_automatic_scaling yes",
-                f"print_level {max(self.gekko_verbose, 0)}",
-                "least_square_init_duals yes",
-                "least_square_init_primal yes",
-            ]
-            # solver_id = 2
-            # options = None
-        return solver_id, options
-
     def build_model(self) -> None:
         """Generates the graph representing the Josephson network
         and defines the NLP problem.
         """
+        island_positions = (self.island_positions * self.length_units).to("m").magnitude
         n_neighbors = len(self.neighbors)
-        n_islands = len(self.island_positions)
+        n_islands = len(island_positions)
         if n_neighbors != n_islands:
             raise ValueError(
                 f"The number of list of neighbors ({n_neighbors}) does not equal "
                 f"the number of islands ({n_islands})."
             )
         self.timing.build_start = datetime.now()
-
-        self.gekko_model = GEKKO(
-            name=os.path.basename(self.outdir), remote=self.gekko_remote
+        graph = self.graph
+        if graph is None:
+            print("Building graph...")
+            graph = build_graph(
+                island_positions=island_positions,
+                neighbors=self.neighbors,
+                josephson_energy_func=self.josephson_energy,
+                vector_potential_func=self.vector_potential,
+            )
+        print("Building model from graph...")
+        self.model_info = graph_to_model(
+            graph,
+            source_nodes=self.source_nodes,
+            drain_nodes=self.drain_nodes,
+            source_drain_current=self.source_drain_current,
         )
-
-        if self.rng_seed:
-            init_phase = lambda: 1e-2 * (self.rng.random() - 0.5)  # noqa: E731
-        else:
-            init_phase = None  # noqa: E731
-
-        island_positions = (self.island_positions * self.length_units).to("m").magnitude
-        if self.source_points is None:
-            source_points = self.source_points
-            drain_points = self.drain_points
-            source_drain_current = self.source_drain_current
-        else:
-            source_points = (self.source_points * self.length_units).to("m").magnitude
-            drain_points = (self.drain_points * self.length_units).to("m").magnitude
-            source_drain_current = self.source_drain_current.to("A").magnitude
-
-        self.model_info = build_graph(
-            gekko_model=self.gekko_model,
-            island_positions=island_positions,
-            neighbors=self.neighbors,
-            josephson_energy_func=self.josephson_energy,
-            vector_potential_func=self.vector_potential,
-            source_points=source_points,
-            drain_points=drain_points,
-            source_drain_current=source_drain_current,
-            phase_initializer=init_phase,
-            rng=self.rng,
-        )
-
+        print("Drawing graph...")
         fig, ax = draw_graph(self.graph)
-        ax.set_title(os.path.basename(self.outdir))
-        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        ax.set_title(os.path.basename(self.basedir))
+        fig.savefig(os.path.join(self.basedir, "graph.pdf"), bbox_inches="tight")
         plt.close(fig)
 
         metadata = self.metadata()
         with open(self.json_file, "w") as f:
             json.dump(metadata, f, indent=4, sort_keys=True, cls=NumpyJSONEncoder)
 
+        self.timing.build_stop = datetime.now()
         print(
             f"Finished building model in python. Elapsed time: "
-            f"{(datetime.now()-self.timing.build_start).total_seconds():.3f} seconds."
+            f"{self.timing.build_time:.3f} seconds."
+        )
+        self.find_cells = functools.lru_cache(
+            functools.partial(find_all_cells, graph=self.graph)
         )
 
-    def solve(self) -> None:
+    def solve(self, minlp: bool = False, reinitialize: bool = True) -> None:
         """Solves the NLP problem."""
-        self.timing.gekko_start = datetime.now()
-        m = self.gekko_model
-        print("Solving model...\n", flush=True)
-        m.options.IMODE = 1  # Steady-state simulation, number of DOF == 0
-        m.options.DIAGLEVEL = 1
-        m.options.MAX_ITER = 5000
-        m.options.SCALING = 1
-        m.options.MAX_MEMORY = 6
-        m.options.REDUCE = 100
-        m.options.RTOL = 1e-6
-        m.options.OTOL = 1e-6
-        m._path = self.outdir
+        self.timing.solve_start = datetime.now()
+        model = self.model
+        graph = self.graph
+        rng = self.make_rng()
+        print(f"RNG seed: {self.rng_seed}")
+        if reinitialize:
+            print("Initializing variables...")
+            initialize_variables(model, graph, rng=rng)
 
-        if self.gekko_remote:
-            # Use IPOPT
-            solver_id, solver_options = self.solver_options("ipopt")
-            m.options.SOLVER = solver_id
-            m.solver_options = solver_options
-            print("Solving NLP problem with IPOPT...")
-        else:
-            # IPOPT not supported for local solve
-            solver_id, solver_options = self.solver_options(
-                "apopt", mixed_integer=False
+        TempfileManager.tempdir = self.outdir
+
+        print("Solving model...", flush=True)
+        # See: https://coin-or.github.io/Ipopt/OPTIONS.html and
+        # https://github.com/Pyomo/pyomo/issues/206#issuecomment-324332219
+        solver_options = dict(
+            OF_tol=1e-8,
+            OF_print_level=5,
+            OF_print_info_string="yes",
+            OF_print_user_options="yes",
+            # OF_print_frequency_time=10,
+            OF_nlp_scaling_method="gradient-based",
+            # OF_nlp_scaling_method="equilibration-based",
+            OF_max_iter=5000,
+            # OF_hsllib="libcoinhsl.dylib",
+            OF_linear_solver="ma57",
+            OF_ma57_automatic_scaling="yes",
+            # OF_expect_infeasible_problem="yes",
+            # OF_theta_max_fact=int(1e6),lb
+            # OF_start_with_resto="yes",
+            # OF_mu_strategy="adaptive",
+            # OF_adaptive_mu_globalization="kkt-error",
+            # OF_inf_pr_output="internal",
+            # OF_nlp_scaling_obj_target_gradient=10,
+            # OF_nlp_scaling_constr_target_gradient=10,
+            # OF_line_search_method="cg-penalty",
+            # OF_constraint_violation_norm_type="2-norm",
+            # OF_least_square_init_primal="yes",
+            # OF_least_square_init_duals="yes",
+            # OF_accept_every_trial_step="yes",
+            # OF_print_timing_statistics="yes",
+            # OF_obj_scaling_factor=1e9,
+            # OF_constr_viol_tol=1e-9,
+            # OF_acceptable_constr_viol_tol=1e-6,
+        )
+
+        if minlp:
+
+            for loop in model.loops:
+                model.vortices[loop].domain = pyo.Integers
+                # model.vortices[loop].value = 0
+                flux = int(np.ceil(np.abs(pyo.value(model.applied_flux[loop]))))
+                model.vortices[loop].lb = -flux
+                model.vortices[loop].ub = +flux
+
+            solver = opt.SolverFactory("mindtpy")
+            self.pyomo_result = solver.solve(
+                model,
+                mip_solver="glpk",
+                # mip_solver="gurobi",
+                nlp_solver="ipopt",
+                nlp_solver_args=dict(options=solver_options),
+                strategy="OA",
+                init_strategy="initial_binary",
+                # solution_pool=True,
+                # num_solution_iteration=10,
+                # add_regularization="grad_lag",
+                tee=True,
+                solver_tee=True,
+                time_limit=3600,
+                # add_slack=True,
+                heuristic_nonconvex=True,
+                # calculate_dual=True,
+                # add_slack=True,
+                # use_fbbt=True,
+                # threads=2,
+                integer_tolerance=1e-3,
             )
-            m.options.SOLVER = solver_id
-            m.solver_options = solver_options
-            print("Solving NLP problem with APOPT...")
 
-        m.solve(disp=True, debug=2)
+        else:
 
-        if False:
-            solver_id, solver_options = self.solver_options("apopt", mixed_integer=True)
-            m.options.SOLVER = solver_id
-            m.solver_options = solver_options
-            print("Solving MINLP problem with APOPT...")
-            m.solve(disp=True, debug=2)
+            for loop in model.loops:
+                model.vortices[loop].domain = pyo.Reals
+            #     model.vortices[loop].value = 0
+            #     model.vortices[loop].lb = -1e-6
+            #     model.vortices[loop].ub = +1e-6
 
-        self.timing.gekko_stop = datetime.now()
+            solver = opt.SolverFactory("ipopt")
+            solver.options.update(solver_options)
+            # solver = opt.SolverFactory("couenne", executable="/Users/LoganBVH/Documents/Solvers/couenne-osx/couenne")
+            # solver_options = dict(
+            #     problem_print_level=7,
+            #     branching_print_level=1,
+            #     boundtightening_print_level=1,
+            #     nlpheur_print_level=1,
+            #     display_stats="yes",
+            # )
+            # with open(os.path.join(self.outdir, "couenne.opt"), "w") as f:
+            #     for k, v in solver_options.items():
+            #         f.write(f"{k} {v}\n")
+            self.pyomo_result = solver.solve(model, tee=True)
+
+        try:
+            print(str(self.pyomo_result.solver))
+        except AttributeError:
+            import traceback
+
+            traceback.print_exc()
+
+        self.timing.solve_stop = datetime.now()
 
     def process_results(self) -> None:
         """Extracts results from the graph and saves them to disk."""
+        print("Building graph from solved model...")
+        self.model_info.graph = model_to_graph(self.model)
+
+        print("Extracting results from graph...")
         graph = self.graph
         outdir = self.outdir
-        print("Extracting and saving edge data...")
-
-        with pd.HDFStore(os.path.join(self.outdir, "results.h5")) as store:
-            df = edge_data_to_df(graph)
-            store["edge_data"] = df
-
-            self.model_info.loops = loop_info = calculate_loop_info(graph, 4)
-            loops = np.array([loop.nodes for loop in loop_info])
-            frustration = np.array([get_scalar(loop.frustration) for loop in loop_info])
-            vortices = np.array([get_scalar(loop.vortices) for loop in loop_info])
-            applied_flux = np.array(
-                [get_scalar(loop.applied_flux) for loop in loop_info]
-            )
-            gauge_invariant_phase = np.array(
-                [get_scalar(loop.gauge_invariant_phase) for loop in loop_info]
-            )
-            # total_flux = np.array([get_scalar(loop.total_flux) for loop in loop_info])
-            (nonzero_loops,) = np.where(np.abs(vortices) > 1e-3)
-            loop_data = {f"node{i}": loops[:, i] for i in range(loops.shape[1] - 1)}
-            loop_data.update(
-                {
-                    # "total_flux": total_flux,
-                    "gauge_invariant_phase": gauge_invariant_phase,
-                    "frustration": frustration,
-                    "vortices": vortices,
-                    "applied_flux": applied_flux,
-                }
-            )
-            df_loops = pd.DataFrame(loop_data)
-            store["loops"] = df_loops
-            store["nonzero_loops"] = pd.Series(nonzero_loops)
-
-        total_energy = sum(
-            get_scalar(energy) for _, _, energy in graph.edges.data("energy")
+        self.model_info.loops = loop_info = calculate_loop_info(
+            graph, basis_loops(graph)
         )
+
+        loops = np.array(loop_info.nodes, dtype=object)
+        current = np.array(loop_info.current)
+        vortices = np.array(loop_info.vortices)
+        applied_flux = np.array(loop_info.applied_flux)
+        gauge_invariant_phase = np.array(loop_info.gauge_invariant_phase)
+        (nonzero_loops,) = np.where(np.abs(vortices) > 1e-2)
+        loop_data = {"nodes": loops}
+        loop_data.update(
+            {
+                "current": current,
+                "gauge_invariant_phase": gauge_invariant_phase,
+                "vortices": vortices,
+                "applied_flux": applied_flux,
+            }
+        )
+        df = edge_data_to_df(graph)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with pd.HDFStore(os.path.join(outdir, "results.h5")) as store:
+                store["edge_data"] = df
+                store["loops"] = pd.DataFrame(loop_data)
+                store["nonzero_loops"] = pd.Series(nonzero_loops)
+
+        total_energy = sum(energy for _, _, energy in graph.edges.data("energy"))
         print(f"Total energy: {total_energy:.3e} eV.")
 
+        print("Drawing currents...")
         fig, axes = draw_currents(df, linewidth=3, cmap="inferno")
         fig.suptitle(outdir)
         fig.savefig(os.path.join(outdir, "currents.pdf"), bbox_inches="tight")
         plt.close(fig)
 
         self.timing.run_stop = datetime.now()
-        self.timing.run_time = (
-            self.timing.run_stop - self.timing.run_start
-        ).total_seconds()
-        solve_time = (self.timing.gekko_stop - self.timing.gekko_start).total_seconds()
-        print(f"Total solve time: {solve_time:.3f} seconds.")
-        print(f"Total run time: {self.timing.run_time:.3f} seconds.")
+        print(f"Solve time: {self.timing.solve_time:.3f} seconds.")
+        print(f"Cumulative run time: {self.timing.total_time:.3f} seconds.")
 
         metadata = self.metadata()
+        metadata["solver_info"] = [
+            line for line in str(self.pyomo_result.solver).splitlines() if line
+        ]
+        metadata["solver_status"] = str(self.pyomo_result.solver.status)
+        metadata["termination_condition"] = str(
+            self.pyomo_result.solver.termination_condition
+        )
         metadata["energy"] = f"{total_energy:.6e} eV"
         metadata["vortices"] = {}
-        for n, loop_info in enumerate(self.loops):
-            v = get_scalar(loop_info.vortices)
-            if np.abs(v) > 1e-3:
+        for n, v in enumerate(vortices):
+            if np.abs(v) > 1e-2:
                 metadata["vortices"][n] = v
-
+        print(f"Total number of vortices: {len(nonzero_loops)}.")
         with open(self.json_file, "w") as f:
             json.dump(metadata, f, indent=4, sort_keys=True, cls=NumpyJSONEncoder)
 
@@ -678,31 +551,37 @@ class JosephsonNetwork(ABC):
         """
         pass
 
-    def cleanup(self) -> None:
-        """Removes unwanted solver-related files."""
-        files_to_keep = {
-            "infeasibilities.txt",
-            "results.h5",
-            "graph.pdf",
-            "currents.pdf",
-            "metadata.json",
-            "ipopt.opt",
-            "apopt_current_options.opt",
-            "APOPT.out",
-        }
-        for name in os.listdir(self.outdir):
-            if name in files_to_keep:
-                continue
-            print(f"Removing {name}...")
-            try:
-                os.remove(os.path.join(self.outdir, name))
-            except Exception as e:
-                print(f"Unable to remove {name}: {e}.")
+    def run_multistart(
+        self, number_of_starts: int = 10, resolve_with_current_conservation: bool = True
+    ):
+        if self.model is None:
+            self.build_model()
+        model = self.model
+        curr_iterations = self.solve_iteration
+        if resolve_with_current_conservation:
+            number_of_starts *= 2
+        while (self.solve_iteration - curr_iterations) < number_of_starts:
+            model.objective_loose.activate()
+            model.objective_strict.deactivate()
+            model.current_conservation.deactivate()
+            self.single_solve(minlp=False)
+            self.solve_iteration += 1
+            if resolve_with_current_conservation:
+                model.objective_loose.deactivate()
+                model.objective_strict.activate()
+                model.current_conservation.activate()
+                self.single_solve(minlp=True, reinitialize=False)
+                self.solve_iteration += 1
+
+    def single_solve(self, minlp: bool = False, reinitialize: bool = True) -> None:
+        self.solve(minlp=minlp, reinitialize=reinitialize)
+        self.process_results()
+        self.post_process()
 
     def run(self) -> None:
-        """Builds the model, solves it, processes results, and cleans up."""
+        """Builds the model, solves it, and processes results"""
         self.build_model()
         self.solve()
         self.process_results()
         self.post_process()
-        self.cleanup()
+        self.solve_iteration += 1
