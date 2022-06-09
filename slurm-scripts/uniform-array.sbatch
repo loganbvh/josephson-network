@@ -15,7 +15,7 @@ echo "$(<$0)"
 jjnetwork_dir=$HOME/josephson-network
 
 echo "python script:"
-echo "$(jjnetwork/scripts/uniform_field.py)"
+echo "$(./jjnetwork/scripts/uniform_field.py)"
 
 # Activate conda env
 source $GROUP_HOME/miniconda3/bin/activate
@@ -25,7 +25,7 @@ outdir=$GROUP_SCRATCH/josephson-network/results/$SLURM_ARRAY_JOB_ID/
 mkdir -p $outdir/logs/
 
 python -m jjnetwork.scripts.uniform_field \
-    --directory=$outdir \
+    --directory=$outdir/$SLURM_ARRAY_TASK_ID \
     --geometry="square" \
     --lattice-constant=0.5 \
     --Bz="4.353334417814589 mT" \
