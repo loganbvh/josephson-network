@@ -6,16 +6,16 @@
 #SBATCH --time=14:00:00
 #SBATCH --ntasks=1
 #SBATCH --mem=6G
+#SBATCH --chdir=$HOME/josephson-network
 
 
 echo "slurm script:"
 echo "$(<$0)"
 
-jjnetwork_dir=$HOME/josephson-network/
-cd jjnetwork_dir
+jjnetwork_dir=$HOME/josephson-network
 
 echo "python script:"
-echo "$(<${jjnetwork_dir}/scripts/uniform_field.py)"
+echo "$(jjnetwork/scripts/uniform_field.py)"
 
 # Activate conda env
 source $GROUP_HOME/miniconda3/bin/activate
@@ -29,7 +29,7 @@ python -m jjnetwork.scripts.uniform_field \
     --geometry="square" \
     --lattice-constant=0.5 \
     --Bz="4.353334417814589 mT" \
-    --junction-cutoff-radius=0.7
+    --junction-cutoff-radius=0.7 \
     --array-size 30 30 \
     --junction-I0="200 nA" \
     --island-diameter="0 nm" \
