@@ -56,8 +56,8 @@ def principal_value_pyo(theta, offset=0):
 
 
 def theta_rule(m, *edge):
-    return principal_value_pyo(m.delta[edge] - 2 * np.pi * m.Aij[edge])
-    # return principal_value_pyo(m.delta[edge]) - 2 * np.pi * m.Aij[edge]
+    # return principal_value_pyo(m.delta[edge] - 2 * np.pi * m.Aij[edge]
+    return m.delta[edge] - 2 * np.pi * m.Aij[edge]
 
 
 def loop_theta_rule(m, loop):
@@ -107,10 +107,7 @@ def current_conservation_rule(m, node):
 
 
 def flux_quantization_rule(m, loop):
-    scale = 1
-    return scale * m.loop_theta[loop] / (2 * np.pi) == scale * (
-        m.vortices[loop] - m.applied_flux[loop]
-    )
+    return m.loop_theta[loop] / (2 * np.pi) - m.vortices[loop] == -m.applied_flux[loop]
 
 
 def source_rule(m, node):
@@ -184,10 +181,10 @@ junction_network.node_current = pyo.Expression(
     rule=node_current_rule,
 )
 
-# junction_network.current_conservation = pyo.Constraint(
-#     junction_network.nodes - junction_network.boundary_nodes,
-#     rule=current_conservation_rule,
-# )
+junction_network.current_conservation = pyo.Constraint(
+    junction_network.nodes - junction_network.boundary_nodes,
+    rule=current_conservation_rule,
+)
 junction_network.source_constraint = pyo.Constraint(
     junction_network.source_nodes,
     rule=source_rule,
@@ -246,12 +243,10 @@ junction_network.objective_loose = pyo.Objective(
     sense=pyo.minimize,
 )
 
-# junction_network.objective_strict = pyo.Objective(
-#     rule=objective_strict,
-#     sense=pyo.minimize,
-# )
-# junction_network.objective.deactivate()
-# junction_network.current_conservation.deactivate()
+junction_network.objective_strict = pyo.Objective(
+    rule=objective_strict,
+    sense=pyo.minimize,
+)
 
 
 def graph_to_model(
@@ -348,9 +343,7 @@ def model_to_graph(model: pyo.ConcreteModel) -> nx.DiGraph:
     return graph
 
 
-def calculate_loop_info(
-    graph: nx.DiGraph, model: pyo.ConcreteModel, loops: list[list[int]]
-) -> LoopInfo:
+def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
     """Generates LoopInfo all basis loops in a network."""
     edges = graph.edges
     loop_info = LoopInfo()
@@ -378,8 +371,9 @@ def calculate_loop_info(
         loop_info.applied_flux.append(applied_flux)
         loop_info.gauge_invariant_phase.append(loop_theta)
         loop_info.vortices.append(
-            pyo.value(model.vortices[ell])
             # loop_delta / (2 * np.pi)
+            principal_value(loop_theta) / (2 * np.pi)
+            + applied_flux
             # applied_flux + loop_theta / (2 * np.pi)
             # (loop_delta - principal_value(loop_delta)) / (2 * np.pi)
             # (loop_theta / (2 * np.pi) - (loop_delta / (2 * np.pi) - applied_flux))
@@ -406,9 +400,12 @@ def initialize_variables(
     print(f"Median applied flux: {median_flux:.5f} Phi_0")
     print(f"Mean applied flux: {mean_flux:.5f} Phi_0")
 
+    max_Aij = max(abs(model.Aij[edge]) for edge in model.edges)
+    print(f"Max Aij: {max_Aij:.4f}")
+
     for node in model.nodes:
-        # model.phase[node].value = rng.normal(loc=0, scale=2 * np.pi * mean_flux)
-        model.phase[node].value = rng.uniform(-1, 1) * np.pi
+        model.phase[node].value = rng.normal(loc=0, scale=2 * np.pi * max_Aij)
+        # model.phase[node].value = rng.uniform(-1, 1) * 2 * np.pi * max_Aij
 
     # for loop in model.loops:
     #     n = rng.choice([-1, 0, 1])
@@ -416,9 +413,9 @@ def initialize_variables(
     #     model.vortices[loop].domain = pyo.Reals
 
     # for loop in model.loops:
-    #     flux = pyo.value(model.applied_flux[loop])
-    #     flux = int(np.ceil(abs(flux)))
-    #     max_val = np.ceil(max_flux)
-    #     model.vortices[loop].value = rng.integers(-max_val, max_val, endpoint=True)
-    #     model.vortices[loop].lb = -max_val
-    #     model.vortices[loop].ub = +max_val
+    # flux = pyo.value(model.applied_flux[loop])
+    # flux = int(np.ceil(abs(flux)))
+    # max_val = np.ceil(max_flux)
+    # model.vortices[loop].value = rng.integers(-max_val, max_val, endpoint=True)
+    # model.vortices[loop].lb = -max_val
+    # model.vortices[loop].ub = +max_val
