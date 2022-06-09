@@ -38,6 +38,8 @@ from .pyomo_model import (
     graph_to_model,
     initialize_variables,
     LoopInfo,
+    set_model_flexible,
+    set_model_strict,
 )
 
 
@@ -495,6 +497,8 @@ class JosephsonNetwork(ABC):
         loops = np.array(loop_info.nodes, dtype=object)
         current = np.array(loop_info.current)
         vortices = np.array(loop_info.vortices)
+        print("Vortex info:")
+        print(pd.DataFrame(vortices).describe())
         applied_flux = np.array(loop_info.applied_flux)
         gauge_invariant_phase = np.array(loop_info.gauge_invariant_phase)
         (nonzero_loops,) = np.where(np.abs(vortices) > 1e-2)
@@ -561,16 +565,12 @@ class JosephsonNetwork(ABC):
         if resolve_with_current_conservation:
             number_of_starts *= 2
         while (self.solve_iteration - curr_iterations) < number_of_starts:
-            model.objective_loose.activate()
-            model.objective_strict.deactivate()
-            model.current_conservation.deactivate()
+            set_model_flexible(model)
             self.single_solve(minlp=False)
             self.solve_iteration += 1
             if resolve_with_current_conservation:
-                model.objective_loose.deactivate()
-                model.objective_strict.activate()
-                model.current_conservation.activate()
-                self.single_solve(minlp=True, reinitialize=False)
+                set_model_strict(model)
+                self.single_solve(minlp=False, reinitialize=False)
                 self.solve_iteration += 1
 
     def single_solve(self, minlp: bool = False, reinitialize: bool = True) -> None:

@@ -44,7 +44,6 @@ def nodes_in_init(m, node):
 def delta_rule(m, *edge):
     i, j = edge
     return m.phase[i] - m.phase[j]
-    # return m.delta[edge] == m.phase[i] - m.phase[j]
 
 
 def principal_value(theta, offset=0):
@@ -56,8 +55,8 @@ def principal_value_pyo(theta, offset=0):
 
 
 def theta_rule(m, *edge):
-    # return principal_value_pyo(m.delta[edge] - 2 * np.pi * m.Aij[edge]
-    return m.delta[edge] - 2 * np.pi * m.Aij[edge]
+    return principal_value_pyo(m.delta[edge]) - 2 * np.pi * m.Aij[edge]
+    # return m.delta[edge] - 2 * np.pi * m.Aij[edge]
 
 
 def loop_theta_rule(m, loop):
@@ -107,7 +106,7 @@ def current_conservation_rule(m, node):
 
 
 def flux_quantization_rule(m, loop):
-    return m.loop_theta[loop] / (2 * np.pi) - m.vortices[loop] == -m.applied_flux[loop]
+    return m.loop_theta[loop] / (2 * np.pi) == m.vortices[loop] - m.applied_flux[loop]
 
 
 def source_rule(m, node):
@@ -125,7 +124,7 @@ def drain_rule(m, node):
 
 junction_network = pyo.AbstractModel()
 
-junction_network.current_scale = pyo.Param(initialize=1e3)
+junction_network.current_scale = pyo.Param(initialize=1e6, mutable=True)
 junction_network.energy_scale = pyo.Param(initialize=1e4)
 
 junction_network.nodes = pyo.Set()
@@ -228,7 +227,7 @@ def squared_current_nonconservation(m):
     )
 
 
-def objective_loose(m):
+def objective_flexible(m):
     return pyo.summation(m.energy) * (
         m.energy_scale + squared_current_nonconservation(m)
     )
@@ -238,8 +237,8 @@ def objective_strict(m):
     return pyo.summation(m.energy)
 
 
-junction_network.objective_loose = pyo.Objective(
-    rule=objective_loose,
+junction_network.objective_flexible = pyo.Objective(
+    rule=objective_flexible,
     sense=pyo.minimize,
 )
 
@@ -370,14 +369,7 @@ def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
         loop_info.current.append(sum(current))
         loop_info.applied_flux.append(applied_flux)
         loop_info.gauge_invariant_phase.append(loop_theta)
-        loop_info.vortices.append(
-            # loop_delta / (2 * np.pi)
-            principal_value(loop_theta) / (2 * np.pi)
-            + applied_flux
-            # applied_flux + loop_theta / (2 * np.pi)
-            # (loop_delta - principal_value(loop_delta)) / (2 * np.pi)
-            # (loop_theta / (2 * np.pi) - (loop_delta / (2 * np.pi) - applied_flux))
-        )
+        loop_info.vortices.append(loop_theta / (2 * np.pi) + applied_flux)
     return loop_info
 
 
@@ -405,17 +397,17 @@ def initialize_variables(
 
     for node in model.nodes:
         model.phase[node].value = rng.normal(loc=0, scale=2 * np.pi * max_Aij)
-        # model.phase[node].value = rng.uniform(-1, 1) * 2 * np.pi * max_Aij
 
-    # for loop in model.loops:
-    #     n = rng.choice([-1, 0, 1])
-    #     model.vortices[loop].value = n
-    #     model.vortices[loop].domain = pyo.Reals
 
-    # for loop in model.loops:
-    # flux = pyo.value(model.applied_flux[loop])
-    # flux = int(np.ceil(abs(flux)))
-    # max_val = np.ceil(max_flux)
-    # model.vortices[loop].value = rng.integers(-max_val, max_val, endpoint=True)
-    # model.vortices[loop].lb = -max_val
-    # model.vortices[loop].ub = +max_val
+def set_model_flexible(model: pyo.ConcreteModel) -> None:
+    model.objective_flexible.activate()
+    model.objective_strict.deactivate()
+    model.current_conservation.deactivate()
+    model.current_scale.value = 1e6
+
+
+def set_model_strict(model: pyo.ConcreteModel) -> None:
+    model.objective_flexible.deactivate()
+    model.objective_strict.activate()
+    model.current_conservation.activate()
+    model.current_scale.value = 1e9
