@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Optional
 
 import networkx as nx
 import numpy as np
@@ -55,8 +55,7 @@ def principal_value_pyo(theta, offset=0):
 
 
 def theta_rule(m, *edge):
-    return principal_value_pyo(m.delta[edge]) - 2 * np.pi * m.Aij[edge]
-    # return m.delta[edge] - 2 * np.pi * m.Aij[edge]
+    return principal_value_pyo(m.delta[edge] - 2 * np.pi * m.Aij[edge])
 
 
 def loop_theta_rule(m, loop):
@@ -163,13 +162,6 @@ junction_network.Aij = pyo.Param(junction_network.edges, within=pyo.Reals)
 # junction_network.Aij_induced = pyo.Expression(junction_network.edges, rule=None)
 
 junction_network.delta = pyo.Expression(junction_network.edges, rule=delta_rule)
-# junction_network.delta = pyo.Var(
-#     junction_network.edges,
-#     within=pyo.Reals,
-#     # bounds=(-np.pi, np.pi),
-# )
-# junction_network.delta_constraint = pyo.Constraint(junction_network.edges, rule=delta_rule)
-
 junction_network.theta = pyo.Expression(junction_network.edges, rule=theta_rule)
 junction_network.Ic = pyo.Expression(junction_network.edges, rule=critical_current_rule)
 junction_network.current = pyo.Expression(junction_network.edges, rule=current_rule)
@@ -192,27 +184,25 @@ junction_network.drain_constraint = pyo.Constraint(
     junction_network.drain_nodes,
     rule=drain_rule,
 )
-# junction_network.applied_flux = pyo.Param(
-#     junction_network.loops, mutable=True, within=pyo.Reals
-# )
 junction_network.applied_flux = pyo.Expression(
     junction_network.loops,
     rule=applied_flux_rule,
 )
-
 junction_network.vortices = pyo.Var(
     junction_network.loops,
     within=pyo.Reals,
 )
-
 junction_network.loop_theta = pyo.Expression(
-    junction_network.loops, rule=loop_theta_rule
+    junction_network.loops,
+    rule=loop_theta_rule,
 )
 junction_network.loop_delta = pyo.Expression(
-    junction_network.loops, rule=loop_delta_rule
+    junction_network.loops,
+    rule=loop_delta_rule,
 )
 junction_network.flux_quantization = pyo.Constraint(
-    junction_network.loops, rule=flux_quantization_rule
+    junction_network.loops,
+    rule=flux_quantization_rule,
 )
 
 
@@ -343,7 +333,7 @@ def model_to_graph(model: pyo.ConcreteModel) -> nx.DiGraph:
 
 
 def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
-    """Generates LoopInfo all basis loops in a network."""
+    """Generates LoopInfo for all specified loops in a network."""
     edges = graph.edges
     loop_info = LoopInfo()
     for ell, loop in enumerate(loops):
@@ -375,8 +365,6 @@ def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
 
 def initialize_variables(
     model: pyo.ConcreteModel,
-    graph: nx.DiGraph,
-    vortices: Sequence[int] = None,
     rng: Optional[np.random.Generator] = None,
 ) -> None:
     if rng is None:

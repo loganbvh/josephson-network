@@ -374,12 +374,11 @@ class JosephsonNetwork(ABC):
         """Solves the NLP problem."""
         self.timing.solve_start = datetime.now()
         model = self.model
-        graph = self.graph
         rng = self.make_rng()
         print(f"RNG seed: {self.rng_seed}")
         if reinitialize:
             print("Initializing variables...")
-            initialize_variables(model, graph, rng=rng)
+            initialize_variables(model, rng=rng)
 
         TempfileManager.tempdir = self.outdir
 
@@ -429,8 +428,7 @@ class JosephsonNetwork(ABC):
             solver = opt.SolverFactory("mindtpy")
             self.pyomo_result = solver.solve(
                 model,
-                mip_solver="glpk",
-                # mip_solver="gurobi",
+                mip_solver="gurobi",
                 nlp_solver="ipopt",
                 nlp_solver_args=dict(options=solver_options),
                 strategy="OA",
