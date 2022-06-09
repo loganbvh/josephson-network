@@ -23,7 +23,7 @@ EJ_funcs = {
 }
 
 
-class TransportModel(JosephsonNetwork):
+class UniformFieldModel(JosephsonNetwork):
 
     META_ATTRS = [
         "Bz",
