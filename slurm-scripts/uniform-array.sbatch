@@ -15,7 +15,7 @@ echo "$(<$0)"
 jjnetwork_dir=$HOME/josephson-network
 
 echo "python script:"
-echo "$(./jjnetwork/scripts/uniform_field.py)"
+echo "$(<./jjnetwork/scripts/uniform_field.py)"
 
 # Activate conda env
 source $GROUP_HOME/miniconda3/bin/activate

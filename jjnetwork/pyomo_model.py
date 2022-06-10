@@ -336,7 +336,7 @@ def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
     """Generates LoopInfo for all specified loops in a network."""
     edges = graph.edges
     loop_info = LoopInfo()
-    for ell, loop in enumerate(loops):
+    for loop in loops:
         current = []
         applied_flux = []
         loop_theta = []
