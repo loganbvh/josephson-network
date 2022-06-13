@@ -395,20 +395,20 @@ def initialize_variables(
 
 
 def set_model_flexible(model: pyo.ConcreteModel) -> None:
-    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.objective_flexible.activate()
     model.objective_strict.deactivate()
     model.current_conservation.deactivate()
-    model.current_scale.value = 1e-2 / max_Ic
-    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    model.energy_scale.value = 1 / E0
+    # max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
+    # model.current_scale.value = 1e-2 / max_Ic
+    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    # model.energy_scale.value = 1 / E0
 
 
 def set_model_strict(model: pyo.ConcreteModel) -> None:
-    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.objective_flexible.deactivate()
     model.objective_strict.activate()
     model.current_conservation.activate()
-    model.current_scale.value = 1e2 / max_Ic
-    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    model.energy_scale.value = 1 / E0
+    # max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
+    # model.current_scale.value = 1e2 / max_Ic
+    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    # model.energy_scale.value = 1 / E0
