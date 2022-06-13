@@ -8,7 +8,7 @@ import scipy.linalg as la
 from tqdm import tqdm
 
 from .graph_utils import basis_loops, round_trip
-from .em import Phi_0, eV
+from .em import Phi_0, eV, mutual_vector_potential_matrix
 
 
 @dataclass
@@ -41,11 +41,6 @@ def nodes_in_init(m, node):
             yield i
 
 
-def delta_rule(m, *edge):
-    i, j = edge
-    return m.phase[i] - m.phase[j]
-
-
 def principal_value(theta, offset=0):
     return offset + 2 * np.arctan(np.tan((theta + offset) / 2))
 
@@ -55,7 +50,8 @@ def principal_value_pyo(theta, offset=0):
 
 
 def theta_rule(m, *edge):
-    return principal_value_pyo(m.delta[edge] - 2 * np.pi * m.Aij[edge])
+    i, j = edge
+    return principal_value_pyo(m.phase[i] - m.phase[j] - 2 * np.pi * m.Aij[edge])
 
 
 def loop_theta_rule(m, loop):
@@ -64,14 +60,6 @@ def loop_theta_rule(m, loop):
         theta = m.theta[i, j] if (i, j) in m.edges else -m.theta[j, i]
         thetas.append(theta)
     return sum(thetas)
-
-
-def loop_delta_rule(m, loop):
-    deltas = []
-    for i, j in round_trip(m.loop_nodes[loop]):
-        delta = m.delta[i, j] if (i, j) in m.edges else -m.delta[j, i]
-        deltas.append(delta)
-    return sum(deltas)
 
 
 def applied_flux_rule(m, loop):
@@ -116,10 +104,15 @@ def drain_rule(m, node):
     return m.node_current[node] == +m.current_scale * m.source_drain_current
 
 
-# def induced_Aij_rule(m, *edge):
-#     return pyo.summation(
-#         m.MAij_x[edge] + m.MAij_y[edge], m.current
-#     )
+def induced_Aij_rule(m, *edge):
+    return m.Aij_induced[edge] == sum(
+        m.MAij[edge + source_edge] * m.current[source_edge] for source_edge in m.edges
+    )
+
+
+def total_Aij_rule(m, *edge):
+    return m.Aij_applied[edge] + m.Aij_induced[edge]
+
 
 junction_network = pyo.AbstractModel()
 
@@ -138,34 +131,33 @@ junction_network.nodes_in = pyo.Set(junction_network.nodes, initialize=nodes_in_
 junction_network.loops = pyo.Set()
 junction_network.loop_nodes = pyo.Set(junction_network.loops)
 
-junction_network.phase = pyo.Var(
-    junction_network.nodes,
-    within=pyo.Reals,
-    # bounds=(0, 2 * np.pi),
-)
+junction_network.phase = pyo.Var(junction_network.nodes, within=pyo.Reals, initialize=0)
 junction_network.xs = pyo.Param(junction_network.nodes, within=pyo.Reals)
 junction_network.ys = pyo.Param(junction_network.nodes, within=pyo.Reals)
 junction_network.source_drain_current = pyo.Param(default=0, within=pyo.Reals)
 
 junction_network.EJ = pyo.Param(junction_network.edges, within=pyo.NonNegativeReals)
-junction_network.Aij = pyo.Param(junction_network.edges, within=pyo.Reals)
 
-# junction_network.MAij_x = pyo.Param(
-#     junction_network.edges * junction_network.edges,
-#     within=pyo.Reals
-# )
-# junction_network.MAij_y = pyo.Param(
-#     junction_network.edges * junction_network.edges,
-#     within=pyo.Reals
-# )
-# junction_network.Aij_applied = pyo.Param(junction_network.edges, within=pyo.Reals)
-# junction_network.Aij_induced = pyo.Expression(junction_network.edges, rule=None)
+junction_network.MAij = pyo.Param(
+    junction_network.edges * junction_network.edges,
+    within=pyo.Reals,
+    default=0,
+)
+junction_network.Aij_applied = pyo.Param(junction_network.edges, within=pyo.Reals)
+junction_network.Aij_induced = pyo.Var(
+    junction_network.edges, within=pyo.Reals, initialize=0
+)
+junction_network.Aij = pyo.Expression(junction_network.edges, rule=total_Aij_rule)
 
-junction_network.delta = pyo.Expression(junction_network.edges, rule=delta_rule)
 junction_network.theta = pyo.Expression(junction_network.edges, rule=theta_rule)
 junction_network.Ic = pyo.Expression(junction_network.edges, rule=critical_current_rule)
 junction_network.current = pyo.Expression(junction_network.edges, rule=current_rule)
 junction_network.energy = pyo.Expression(junction_network.edges, rule=energy_rule)
+
+junction_network.Aij_induced_constraint = pyo.Constraint(
+    junction_network.edges,
+    rule=induced_Aij_rule,
+)
 
 junction_network.node_current = pyo.Expression(
     junction_network.nodes,
@@ -195,10 +187,6 @@ junction_network.vortices = pyo.Var(
 junction_network.loop_theta = pyo.Expression(
     junction_network.loops,
     rule=loop_theta_rule,
-)
-junction_network.loop_delta = pyo.Expression(
-    junction_network.loops,
-    rule=loop_delta_rule,
 )
 junction_network.flux_quantization = pyo.Constraint(
     junction_network.loops,
@@ -243,6 +231,7 @@ def graph_to_model(
     source_nodes: Optional[np.ndarray] = None,
     drain_nodes: Optional[np.ndarray] = None,
     source_drain_current: Optional[float] = None,
+    include_screening: bool = True,
 ) -> ModelInfo:
     """Populates a ``junction_network`` model from a directed graph."""
     if source_drain_current is None:
@@ -252,9 +241,10 @@ def graph_to_model(
     edge_attrs = list(graph.edges[next(iter(graph.edges))])
     positions = np.stack([p for _, p in sorted(graph.nodes.data("position"))], axis=0)
     loop_indices = list(range(len(loops)))
+    edges = list(graph.edges)
     model_data = {
         "nodes": {None: list(graph.nodes)},
-        "edges": {None: list(graph.edges)},
+        "edges": {None: edges},
         "loops": {None: loop_indices},
         "source_nodes": {None: source_nodes},
         "drain_nodes": {None: drain_nodes},
@@ -268,7 +258,18 @@ def graph_to_model(
     for name in edge_attrs:
         model_data[name] = {(i, j): val for i, j, val in graph.edges.data(name)}
 
+    if include_screening:
+        MAij = mutual_vector_potential_matrix(graph)
+        model_data["MAij"] = {
+            edges[kl] + edges[ij]: A for (kl, ij), A in np.ndenumerate(MAij)
+        }
+
     model = junction_network.create_instance({None: model_data})
+
+    if not include_screening:
+        for edge in model.edges:
+            model.Aij_induced[edge].fix(0)
+        model.Aij_induced_constraint.deactivate()
 
     current_scale = pyo.value(model.current_scale)
 
@@ -324,7 +325,6 @@ def model_to_graph(model: pyo.ConcreteModel) -> nx.DiGraph:
             EJ=get(model.EJ[i, j]),
             Ic=get(model.Ic[i, j]),
             Aij=get(model.Aij[i, j]),
-            delta=get(model.delta[i, j]),
             theta=get(model.theta[i, j]),
             current=get(model.current[i, j]) / current_scale,
             energy=get(model.energy[i, j]),
@@ -339,27 +339,23 @@ def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
     for loop in loops:
         current = []
         applied_flux = []
-        loop_theta = []
-        loop_delta = []
+        loop_thetas = []
         for i, j in round_trip(loop):
             if (i, j) in edges:
                 current.append(edges[i, j]["current"])
                 applied_flux.append(edges[i, j]["Aij"])
-                loop_theta.append(edges[i, j]["theta"])
-                loop_delta.append(edges[i, j]["delta"])
+                loop_thetas.append(edges[i, j]["theta"])
             else:
                 current.append(-edges[j, i]["current"])
                 applied_flux.append(-edges[j, i]["Aij"])
-                loop_theta.append(-edges[j, i]["theta"])
-                loop_delta.append(-edges[j, i]["delta"])
-        loop_theta = sum(loop_theta)
+                loop_thetas.append(-edges[j, i]["theta"])
+        loop_theta = sum(loop_thetas)
         applied_flux = sum(applied_flux)
-        loop_delta = sum(loop_delta)
         loop_info.nodes.append(loop)
         loop_info.current.append(sum(current))
         loop_info.applied_flux.append(applied_flux)
         loop_info.gauge_invariant_phase.append(loop_theta)
-        loop_info.vortices.append(loop_theta / (2 * np.pi) + applied_flux)
+        loop_info.vortices.append(sum(loop_thetas) / (2 * np.pi) + applied_flux)
     return loop_info
 
 
@@ -370,17 +366,17 @@ def initialize_variables(
     if rng is None:
         rng = np.random.default_rng()
 
-    applied_flux = np.array(
-        [pyo.value(model.applied_flux[loop]) for loop in model.loops]
-    )
-    max_flux = np.max(np.abs(applied_flux))
-    median_flux = np.median(np.abs(applied_flux))
-    mean_flux = np.mean(np.abs(applied_flux))
-    print(f"Max applied flux: {max_flux:.5f} Phi_0")
-    print(f"Median applied flux: {median_flux:.5f} Phi_0")
-    print(f"Mean applied flux: {mean_flux:.5f} Phi_0")
+    # applied_flux = np.array(
+    #     [pyo.value(model.applied_flux[loop]) for loop in model.loops]
+    # )
+    # max_flux = np.max(np.abs(applied_flux))
+    # median_flux = np.median(np.abs(applied_flux))
+    # mean_flux = np.mean(np.abs(applied_flux))
+    # print(f"Max applied flux: {max_flux:.5f} Phi_0")
+    # print(f"Median applied flux: {median_flux:.5f} Phi_0")
+    # print(f"Mean applied flux: {mean_flux:.5f} Phi_0")
 
-    max_Aij = max(abs(model.Aij[edge]) for edge in model.edges)
+    max_Aij = max(abs(model.Aij_applied[edge]) for edge in model.edges)
     print(f"Max Aij: {max_Aij:.4f}")
 
     for node in model.nodes:

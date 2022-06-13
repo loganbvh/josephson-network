@@ -4,7 +4,7 @@ from datetime import datetime
 import functools
 import json
 import os
-from typing import Any, Callable, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Union
 import warnings
 
 
@@ -76,8 +76,8 @@ def build_graph(
     neighbors: list[list[int]],
     josephson_energy_func: Callable,
     vector_potential_func: Callable,
-    vector_potential_points: int = 21,
-) -> tuple[nx.DiGraph, Sequence[int], Sequence[int], float]:
+    vector_potential_points: int = 101,
+) -> nx.DiGraph:
     """Generates the network.
 
     Args:
@@ -134,7 +134,7 @@ def build_graph(
             dict(
                 length=length,
                 EJ=EJ,
-                Aij=Aij,
+                Aij_applied=Aij,
             )
         )
     return graph
@@ -163,6 +163,7 @@ class JosephsonNetwork(ABC):
         "source_nodes",
         "drain_nodes",
         "source_drain_current",
+        "include_screening",
         "length_units",
         "base_rng_seed",
         "solve_iteration",
@@ -178,6 +179,7 @@ class JosephsonNetwork(ABC):
         source_points: Optional[np.ndarray] = None,
         drain_points: Optional[np.ndarray] = None,
         source_drain_current: Optional[Union[str, float]] = None,
+        include_screening: bool = False,
         length_units: str = "um",
         rng_seed: int = -1,
     ):
@@ -194,6 +196,7 @@ class JosephsonNetwork(ABC):
         os.makedirs(self.basedir)
         self.solve_iteration = 0
         self.timing = TimingInfo(run_start=run_start)
+        self.include_screening = include_screening
         self.length_units = ureg(length_units)
         rng_seed = int(rng_seed)
         if rng_seed == -1:
@@ -350,6 +353,7 @@ class JosephsonNetwork(ABC):
             source_nodes=self.source_nodes,
             drain_nodes=self.drain_nodes,
             source_drain_current=self.source_drain_current,
+            include_screening=self.include_screening,
         )
         print("Drawing graph...")
         fig, ax = draw_graph(self.graph)
@@ -370,7 +374,7 @@ class JosephsonNetwork(ABC):
             functools.partial(find_all_cells, graph=self.graph)
         )
 
-    def solve(self, minlp: bool = False, reinitialize: bool = True) -> None:
+    def solve(self, reinitialize: bool = True) -> None:
         """Solves the NLP problem."""
         self.timing.solve_start = datetime.now()
         model = self.model
@@ -390,37 +394,16 @@ class JosephsonNetwork(ABC):
             OF_print_level=5,
             OF_print_info_string="yes",
             OF_print_user_options="yes",
-            # OF_print_frequency_time=10,
             OF_nlp_scaling_method="gradient-based",
-            # OF_nlp_scaling_method="equilibration-based",
             OF_max_iter=5000,
-            # OF_hsllib="libcoinhsl.dylib",
             OF_linear_solver="ma57",
             OF_ma57_automatic_scaling="yes",
-            # OF_expect_infeasible_problem="yes",
-            # OF_theta_max_fact=int(1e6),lb
-            # OF_start_with_resto="yes",
-            # OF_mu_strategy="adaptive",
-            # OF_adaptive_mu_globalization="kkt-error",
-            # OF_inf_pr_output="internal",
-            # OF_nlp_scaling_obj_target_gradient=10,
-            # OF_nlp_scaling_constr_target_gradient=10,
-            # OF_line_search_method="cg-penalty",
-            # OF_constraint_violation_norm_type="2-norm",
-            # OF_least_square_init_primal="yes",
-            # OF_least_square_init_duals="yes",
-            # OF_accept_every_trial_step="yes",
-            # OF_print_timing_statistics="yes",
-            # OF_obj_scaling_factor=1e9,
-            # OF_constr_viol_tol=1e-9,
-            # OF_acceptable_constr_viol_tol=1e-6,
         )
-
+        minlp = False
         if minlp:
 
             for loop in model.loops:
                 model.vortices[loop].domain = pyo.Integers
-                # model.vortices[loop].value = 0
                 flux = int(np.ceil(np.abs(pyo.value(model.applied_flux[loop]))))
                 model.vortices[loop].lb = -flux
                 model.vortices[loop].ub = +flux
@@ -433,51 +416,19 @@ class JosephsonNetwork(ABC):
                 nlp_solver_args=dict(options=solver_options),
                 strategy="OA",
                 init_strategy="initial_binary",
-                # solution_pool=True,
-                # num_solution_iteration=10,
-                # add_regularization="grad_lag",
                 tee=True,
                 solver_tee=True,
                 time_limit=3600,
-                # add_slack=True,
                 heuristic_nonconvex=True,
-                # calculate_dual=True,
-                # add_slack=True,
-                # use_fbbt=True,
-                # threads=2,
                 integer_tolerance=1e-3,
             )
 
         else:
-
-            for loop in model.loops:
-                model.vortices[loop].domain = pyo.Reals
-            #     model.vortices[loop].value = 0
-            #     model.vortices[loop].lb = -1e-6
-            #     model.vortices[loop].ub = +1e-6
-
             solver = opt.SolverFactory("ipopt")
             solver.options.update(solver_options)
-            # solver = opt.SolverFactory("couenne", executable="/Users/LoganBVH/Documents/Solvers/couenne-osx/couenne")
-            # solver_options = dict(
-            #     problem_print_level=7,
-            #     branching_print_level=1,
-            #     boundtightening_print_level=1,
-            #     nlpheur_print_level=1,
-            #     display_stats="yes",
-            # )
-            # with open(os.path.join(self.outdir, "couenne.opt"), "w") as f:
-            #     for k, v in solver_options.items():
-            #         f.write(f"{k} {v}\n")
             self.pyomo_result = solver.solve(model, tee=True)
 
-        try:
-            print(str(self.pyomo_result.solver))
-        except AttributeError:
-            import traceback
-
-            traceback.print_exc()
-
+        print(str(self.pyomo_result.solver))
         self.timing.solve_stop = datetime.now()
 
     def process_results(self) -> None:
@@ -564,15 +515,15 @@ class JosephsonNetwork(ABC):
             number_of_starts *= 2
         while (self.solve_iteration - curr_iterations) < number_of_starts:
             set_model_flexible(model)
-            self.single_solve(minlp=False)
+            self.single_solve()
             self.solve_iteration += 1
             if resolve_with_current_conservation:
                 set_model_strict(model)
-                self.single_solve(minlp=False, reinitialize=False)
+                self.single_solve(reinitialize=False)
                 self.solve_iteration += 1
 
-    def single_solve(self, minlp: bool = False, reinitialize: bool = True) -> None:
-        self.solve(minlp=minlp, reinitialize=reinitialize)
+    def single_solve(self, reinitialize: bool = True) -> None:
+        self.solve(reinitialize=reinitialize)
         self.process_results()
         self.post_process()
 
