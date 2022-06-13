@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from ..susceptibility import TwoLoopModel, SSMModel
@@ -13,6 +14,18 @@ if __name__ == "__main__":
         choices=("twoloop", "squid"),
     )
     parser.add_argument(
+        "--geometry",
+        type=str,
+        choices=("square", "triangular"),
+        default=None,
+    )
+    parser.add_argument(
+        "--lattice-constant",
+        type=float,
+        default=None,
+        help="Lattice constant in length_units.",
+    )
+    parser.add_argument(
         "--starts",
         type=int,
         default=1,
@@ -26,6 +39,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--island-positions",
         type=str,
+        default=None,
         help="Path to csv file containing island positions.",
     )
     parser.add_argument(
@@ -163,6 +177,9 @@ if __name__ == "__main__":
     kwargs = vars(args)
     model_type = kwargs.pop("model")
     number_of_starts = kwargs.pop("starts")
+    geometry = kwargs.pop("geometry")
+    lattice_constant = kwargs.pop("lattice_constant")
+    positions_fname = kwargs.pop("island_positions")
 
     if model_type == "twoloop":
         model_cls = TwoLoopModel
@@ -183,13 +200,34 @@ if __name__ == "__main__":
     for name in pop_args:
         _ = kwargs.pop(name)
 
-    # Load island positions from file
-    positions_fname = kwargs["island_positions"]
-    island_positions = pd.read_csv(positions_fname)
-    island_positions = island_positions.values[:, -2:]
-    assert island_positions.ndim == 2, island_positions.ndim
-    assert island_positions.shape[1] == 2, island_positions.shape
-    kwargs["island_positions"] = island_positions
+    if geometry is not None:
+        assert lattice_constant is not None
+        assert positions_fname is None
 
+        if geometry == "triangular":
+            raise NotImplementedError
+
+        if geometry == "square":
+            a = lattice_constant
+            width = height = (
+                2.5 * a * kwargs["fc_radius"] * kwargs["patch_radius_factor"]
+            )
+            xs = np.linspace(-width / (2 * a), width / (2 * a), 2 * int(width / a) + 1)
+            ys = np.linspace(
+                -height / (2 * a), height / (2 * a), 2 * int(height / a) + 1
+            )
+            X, Y = np.meshgrid(xs, ys)
+            island_positions = np.stack([X.ravel(), Y.ravel()], axis=1)
+    else:
+        # Load island positions from file
+        assert lattice_constant is None
+        assert positions_fname is not None
+
+        island_positions = pd.read_csv(positions_fname)
+        island_positions = island_positions.values[:, -2:]
+        assert island_positions.ndim == 2, island_positions.ndim
+        assert island_positions.shape[1] == 2, island_positions.shape
+
+    kwargs["island_positions"] = island_positions
     model = model_cls(**kwargs)
     model.run_multistart(number_of_starts=number_of_starts)

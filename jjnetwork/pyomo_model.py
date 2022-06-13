@@ -399,7 +399,7 @@ def set_model_flexible(model: pyo.ConcreteModel) -> None:
     model.objective_flexible.activate()
     model.objective_strict.deactivate()
     model.current_conservation.deactivate()
-    model.current_scale.value = 1 / max_Ic
+    model.current_scale.value = 1e-2 / max_Ic
     E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
     model.energy_scale.value = 1 / E0
 

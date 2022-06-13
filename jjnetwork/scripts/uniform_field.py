@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lattice-constant",
         type=float,
-        default=1,
+        default=None,
         help="Lattice constant in length_units.",
     )
     parser.add_argument(
