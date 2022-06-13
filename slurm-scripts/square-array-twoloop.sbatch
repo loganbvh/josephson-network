@@ -34,7 +34,7 @@ python -m jjnetwork.scripts.susceptibility \
     --pl-radius=1.5 \
     --fc-center 0 0 1 \
     --pl-center 0 0 1 \
-    --fc-current=$fc_current \
+    --fc-current="${fc_current} mA" \
     --junction-I0="200 nA" \
     --island-diameter="0 nm" \
     --junction-d0="${lattice_constant} nm" \
