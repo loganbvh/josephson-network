@@ -8,7 +8,11 @@ import scipy.linalg as la
 from tqdm import tqdm
 
 from .graph_utils import basis_loops, round_trip
-from .em import Phi_0, eV, mutual_vector_potential_matrix
+from .em import (
+    Phi_0,
+    eV,
+    # mutual_vector_potential_matrix,
+)
 
 
 @dataclass
@@ -106,7 +110,8 @@ def drain_rule(m, node):
 
 def induced_Aij_rule(m, *edge):
     return m.Aij_induced[edge] == sum(
-        m.MAij[edge + source_edge] * m.current[source_edge] for source_edge in m.edges
+        m.MAij[edge + source_edge] * m.current[source_edge] / m.current_scale
+        for source_edge in m.edges
     )
 
 
@@ -117,7 +122,7 @@ def total_Aij_rule(m, *edge):
 junction_network = pyo.AbstractModel()
 
 junction_network.current_scale = pyo.Param(initialize=1e6, mutable=True)
-junction_network.energy_scale = pyo.Param(initialize=1e4)
+junction_network.energy_scale = pyo.Param(initialize=1e4, mutable=True)
 
 junction_network.nodes = pyo.Set()
 junction_network.source_nodes = pyo.Set(within=junction_network.nodes)
@@ -144,7 +149,10 @@ junction_network.MAij = pyo.Param(
     default=0,
 )
 junction_network.Aij_applied = pyo.Param(junction_network.edges, within=pyo.Reals)
-junction_network.Aij_induced = pyo.Var(
+# junction_network.Aij_induced = pyo.Var(
+#     junction_network.edges, within=pyo.Reals, initialize=0
+# )
+junction_network.Aij_induced = pyo.Param(
     junction_network.edges, within=pyo.Reals, initialize=0
 )
 junction_network.Aij = pyo.Expression(junction_network.edges, rule=total_Aij_rule)
@@ -154,10 +162,10 @@ junction_network.Ic = pyo.Expression(junction_network.edges, rule=critical_curre
 junction_network.current = pyo.Expression(junction_network.edges, rule=current_rule)
 junction_network.energy = pyo.Expression(junction_network.edges, rule=energy_rule)
 
-junction_network.Aij_induced_constraint = pyo.Constraint(
-    junction_network.edges,
-    rule=induced_Aij_rule,
-)
+# junction_network.Aij_induced_constraint = pyo.Constraint(
+#     junction_network.edges,
+#     rule=induced_Aij_rule,
+# )
 
 junction_network.node_current = pyo.Expression(
     junction_network.nodes,
@@ -231,7 +239,7 @@ def graph_to_model(
     source_nodes: Optional[np.ndarray] = None,
     drain_nodes: Optional[np.ndarray] = None,
     source_drain_current: Optional[float] = None,
-    include_screening: bool = True,
+    # include_screening: bool = True,
 ) -> ModelInfo:
     """Populates a ``junction_network`` model from a directed graph."""
     if source_drain_current is None:
@@ -258,21 +266,22 @@ def graph_to_model(
     for name in edge_attrs:
         model_data[name] = {(i, j): val for i, j, val in graph.edges.data(name)}
 
-    if include_screening:
-        MAij = mutual_vector_potential_matrix(graph)
-        model_data["MAij"] = {
-            edges[kl] + edges[ij]: A for (kl, ij), A in np.ndenumerate(MAij)
-        }
+    # if include_screening:
+    #     print("Calculating mutual vector potential matrix...")
+    #     MAij = mutual_vector_potential_matrix(graph).to("Phi_0 / A").magnitude
+    #     model_data["MAij"] = {
+    #         edges[kl] + edges[ij]: A for (kl, ij), A in np.ndenumerate(MAij)
+    #     }
 
+    print("Constructing Pyomo model...")
     model = junction_network.create_instance({None: model_data})
 
-    if not include_screening:
-        for edge in model.edges:
-            model.Aij_induced[edge].fix(0)
-        model.Aij_induced_constraint.deactivate()
+    # if not include_screening:
+    #     for edge in model.edges:
+    #         model.Aij_induced[edge].fix(0)
+    #     model.Aij_induced_constraint.deactivate()
 
     current_scale = pyo.value(model.current_scale)
-
     loop_info = LoopInfo()
     edges = graph.edges
     for ell, loop in enumerate(tqdm(loops, desc="Populating loops")):
@@ -325,6 +334,8 @@ def model_to_graph(model: pyo.ConcreteModel) -> nx.DiGraph:
             EJ=get(model.EJ[i, j]),
             Ic=get(model.Ic[i, j]),
             Aij=get(model.Aij[i, j]),
+            Aij_applied=get(model.Aij_applied[i, j]),
+            Aij_induced=get(model.Aij_induced[i, j]),
             theta=get(model.theta[i, j]),
             current=get(model.current[i, j]) / current_scale,
             energy=get(model.energy[i, j]),
@@ -384,14 +395,20 @@ def initialize_variables(
 
 
 def set_model_flexible(model: pyo.ConcreteModel) -> None:
+    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.objective_flexible.activate()
     model.objective_strict.deactivate()
     model.current_conservation.deactivate()
-    model.current_scale.value = 1e6
+    model.current_scale.value = 1 / max_Ic
+    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    model.energy_scale.value = 1 / E0
 
 
 def set_model_strict(model: pyo.ConcreteModel) -> None:
+    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.objective_flexible.deactivate()
     model.objective_strict.activate()
     model.current_conservation.activate()
-    model.current_scale.value = 1e9
+    model.current_scale.value = 1e2 / max_Ic
+    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    model.energy_scale.value = 1 / E0

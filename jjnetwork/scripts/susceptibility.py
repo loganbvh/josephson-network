@@ -153,6 +153,11 @@ if __name__ == "__main__":
             "If rng-seed is 0, junctions are initialized to zero."
         ),
     )
+    # parser.add_argument(
+    #     "--include-screening",
+    #     action="store_true",
+    #     help="Whether to include screening in the calculation."
+    # )
 
     args = parser.parse_args()
     kwargs = vars(args)

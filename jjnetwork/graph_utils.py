@@ -298,7 +298,16 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
                 phase=np.array([row[f"node{label}_phase"], row[f"node{label}_phase"]]),
             )
         nx.set_node_attributes(graph, node_attrs)
-        edge_attrs = ["length", "EJ", "Aij", "theta", "current", "energy"]
+        edge_attrs = [
+            "length",
+            "EJ",
+            "Aij",
+            "Aij_applied",
+            "Aij_induced",
+            "theta",
+            "current",
+            "energy",
+        ]
         nx.set_edge_attributes(graph, {(i, j): {key: row[key] for key in edge_attrs}})
     return graph
 

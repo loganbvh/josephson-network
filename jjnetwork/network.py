@@ -163,7 +163,7 @@ class JosephsonNetwork(ABC):
         "source_nodes",
         "drain_nodes",
         "source_drain_current",
-        "include_screening",
+        # "include_screening",
         "length_units",
         "base_rng_seed",
         "solve_iteration",
@@ -179,7 +179,7 @@ class JosephsonNetwork(ABC):
         source_points: Optional[np.ndarray] = None,
         drain_points: Optional[np.ndarray] = None,
         source_drain_current: Optional[Union[str, float]] = None,
-        include_screening: bool = False,
+        # include_screening: bool = False,
         length_units: str = "um",
         rng_seed: int = -1,
     ):
@@ -196,7 +196,7 @@ class JosephsonNetwork(ABC):
         os.makedirs(self.basedir)
         self.solve_iteration = 0
         self.timing = TimingInfo(run_start=run_start)
-        self.include_screening = include_screening
+        # self.include_screening = include_screening
         self.length_units = ureg(length_units)
         rng_seed = int(rng_seed)
         if rng_seed == -1:
@@ -353,7 +353,7 @@ class JosephsonNetwork(ABC):
             source_nodes=self.source_nodes,
             drain_nodes=self.drain_nodes,
             source_drain_current=self.source_drain_current,
-            include_screening=self.include_screening,
+            # include_screening=self.include_screening,
         )
         print("Drawing graph...")
         fig, ax = draw_graph(self.graph)
