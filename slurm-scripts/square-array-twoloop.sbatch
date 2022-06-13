@@ -26,6 +26,7 @@ mkdir -p $outdir/logs/
 
 python -m jjnetwork.scripts.susceptibility \
     --directory=$outdir/$SLURM_ARRAY_TASK_ID \
+    --model="twoloop" \
     --geometry="square" \
     --lattice-constant=$lattice_constant \
     --junction-cutoff-radius=0.7 \
