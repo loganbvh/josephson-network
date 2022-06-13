@@ -148,7 +148,7 @@ def find_all_cycles(graph: nx.Graph, length: int) -> list[list[tuple[int]]]:
     return cycles
 
 
-def find_all_cells(graph: nx.Graph, length: int = 4) -> np.ndarray:
+def find_all_cells(graph: nx.Graph, length: int = 4, sort: bool = True) -> np.ndarray:
     """Finds all cycles of a given length in the graph and orients them counterclockwise."""
     loops = find_all_cycles(graph, length)
     seen = set()
@@ -166,6 +166,10 @@ def find_all_cells(graph: nx.Graph, length: int = 4) -> np.ndarray:
     areas = polygon_areas(points, cells[:, :-1])
     # assert np.all(areas >= 0)
     cells = cells[areas > 0]
+    if sort:
+        cell_centers = points[cells][:, 1:].mean(axis=1)
+        ix = np.argsort(cell_centers[:, 0])
+        cells = cells[ix]
     return cells
 
 
@@ -294,7 +298,7 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
                 phase=np.array([row[f"node{label}_phase"], row[f"node{label}_phase"]]),
             )
         nx.set_node_attributes(graph, node_attrs)
-        edge_attrs = ["length", "EJ", "Aij", "delta", "theta", "current", "energy"]
+        edge_attrs = ["length", "EJ", "Aij", "theta", "current", "energy"]
         nx.set_edge_attributes(graph, {(i, j): {key: row[key] for key in edge_attrs}})
     return graph
 
