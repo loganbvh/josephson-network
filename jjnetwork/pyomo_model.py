@@ -20,7 +20,9 @@ class LoopInfo:
     """A container for data related to all loops (closed paths) in a network."""
 
     nodes: list[int] = field(default_factory=list)
+    total_flux: list[float] = field(default_factory=list)
     applied_flux: list[float] = field(default_factory=list)
+    induced_flux: list[float] = field(default_factory=list)
     current: list[float] = field(default_factory=list)
     gauge_invariant_phase: list[float] = field(default_factory=list)
     vortices: list[float] = field(default_factory=list)
@@ -162,12 +164,12 @@ junction_network.Ic = pyo.Expression(junction_network.edges, rule=critical_curre
 junction_network.current = pyo.Expression(junction_network.edges, rule=current_rule)
 junction_network.energy = pyo.Expression(junction_network.edges, rule=energy_rule)
 
-junction_network.Aij_induced_constraint = pyo.Constraint(
-    junction_network.edges,
-    rule=induced_Aij_rule,
-)
+# junction_network.Aij_induced_constraint = pyo.Constraint(
+#     junction_network.edges,
+#     rule=induced_Aij_rule,
+# )
 
-# junction_network.Aij_induced_constraint = pyo.ConstraintList()
+junction_network.Aij_induced_constraint = pyo.ConstraintList()
 
 junction_network.node_current = pyo.Expression(
     junction_network.nodes,
@@ -278,10 +280,20 @@ def graph_to_model(
     print("Constructing Pyomo model...")
     model = junction_network.create_instance({None: model_data})
 
-    if not include_screening:
+    if include_screening:
+        for edge in tqdm(model.edges, desc="Adding screening constraints"):
+            model.Aij_induced_constraint.add(
+                model.Aij_induced[edge]
+                == sum(
+                    model.MAij[edge + source_edge]
+                    * model.current[source_edge]
+                    / model.current_scale
+                    for source_edge in model.edges
+                )
+            )
+    else:
         for edge in model.edges:
             model.Aij_induced[edge].fix(0)
-        model.Aij_induced_constraint.deactivate()
 
     current_scale = pyo.value(model.current_scale)
     loop_info = LoopInfo()
@@ -351,24 +363,29 @@ def calculate_loop_info(graph: nx.DiGraph, loops: list[list[int]]) -> LoopInfo:
     loop_info = LoopInfo()
     for loop in loops:
         current = []
+        total_flux = []
         applied_flux = []
+        induced_flux = []
         loop_thetas = []
         for i, j in round_trip(loop):
             if (i, j) in edges:
-                current.append(edges[i, j]["current"])
-                applied_flux.append(edges[i, j]["Aij"])
-                loop_thetas.append(edges[i, j]["theta"])
+                sign, edge = +1, edges[i, j]
             else:
-                current.append(-edges[j, i]["current"])
-                applied_flux.append(-edges[j, i]["Aij"])
-                loop_thetas.append(-edges[j, i]["theta"])
+                sign, edge = -1, edges[j, i]
+            current.append(sign * edge["current"])
+            total_flux.append(sign * edge["Aij"])
+            applied_flux.append(sign * edge["Aij_applied"])
+            induced_flux.append(sign * edge["Aij_induced"])
+            loop_thetas.append(sign * edge["theta"])
         loop_theta = sum(loop_thetas)
-        applied_flux = sum(applied_flux)
+        total_flux = sum(total_flux)
         loop_info.nodes.append(loop)
         loop_info.current.append(sum(current))
-        loop_info.applied_flux.append(applied_flux)
+        loop_info.total_flux.append(total_flux)
+        loop_info.applied_flux.append(sum(applied_flux))
+        loop_info.induced_flux.append(sum(induced_flux))
         loop_info.gauge_invariant_phase.append(loop_theta)
-        loop_info.vortices.append(sum(loop_thetas) / (2 * np.pi) + applied_flux)
+        loop_info.vortices.append(loop_theta / (2 * np.pi) + total_flux)
     return loop_info
 
 
@@ -390,7 +407,7 @@ def initialize_variables(
     # print(f"Mean applied flux: {mean_flux:.5f} Phi_0")
 
     max_Aij = max(abs(model.Aij_applied[edge]) for edge in model.edges)
-    print(f"Max Aij: {max_Aij:.4f}")
+    print(f"Max Aij: {max_Aij:.4e}")
 
     for node in model.nodes:
         model.phase[node].value = rng.normal(loc=0, scale=2 * np.pi * max_Aij)
@@ -400,17 +417,18 @@ def set_model_flexible(model: pyo.ConcreteModel) -> None:
     model.objective_flexible.activate()
     model.objective_strict.deactivate()
     model.current_conservation.deactivate()
-    # max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
-    # model.current_scale.value = 1e-2 / max_Ic
-    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    # model.energy_scale.value = 1 / E0
+    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
+    model.current_scale.value = 1e-2 / max_Ic
+    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    print(f"{max_Ic:4e}, {E0:.4e}")
+    model.energy_scale.value = 1 / E0
 
 
 def set_model_strict(model: pyo.ConcreteModel) -> None:
     model.objective_flexible.deactivate()
     model.objective_strict.activate()
     model.current_conservation.activate()
-    # max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
-    # model.current_scale.value = 1e2 / max_Ic
-    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    # model.energy_scale.value = 1 / E0
+    max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
+    model.current_scale.value = 1e2 / max_Ic
+    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    model.energy_scale.value = 1 / E0

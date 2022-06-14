@@ -42,6 +42,9 @@ class TwoLoopModel(JosephsonNetwork):
         "junction_length_dependence",
         "junction_d0",
         "junction_I0",
+        "bare_mutual_bs",
+        "bare_mutual_A",
+        "susceptibility",
     ] + JosephsonNetwork.META_ATTRS
 
     def __init__(
@@ -86,6 +89,9 @@ class TwoLoopModel(JosephsonNetwork):
         self.junction_I0 = junction_I0
         assert junction_length_dependence in EJ_funcs
         self.junction_length_dependence = junction_length_dependence
+        self.bare_mutual_bs = None
+        self.bare_mutual_A = None
+        self.susceptibility = None
 
         super().__init__(**kwargs)
 
@@ -121,8 +127,8 @@ class TwoLoopModel(JosephsonNetwork):
         )[:, 2]
         fc_field = fc_field * ureg("tesla")
         bare_flux = np.einsum("i, i ->", fc_field, pl_areas).to("Phi_0")
-        bare_mutual_bs = (bare_flux / self.fc_current).to("Phi_0 / A")
-        print(f"Bare mutual inductance (Biot-Savart): {bare_mutual_bs:.3e~P}")
+        self.bare_mutual_bs = (bare_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (Biot-Savart): {self.bare_mutual_bs:.3e~P}")
 
         pl_outer = (
             np.append(pl_outer, np.zeros_like(pl_outer[:, :1]), axis=1)
@@ -137,8 +143,8 @@ class TwoLoopModel(JosephsonNetwork):
         ) * ureg("tesla * meter")
         d_pl = np.diff(close_curve(pl_outer), axis=0)
         pl_flux = np.trapz(np.sum(pl_vector_potential * d_pl, axis=1)).to("Phi_0")
-        bare_mutual_A = (pl_flux / self.fc_current).to("Phi_0 / A")
-        print(f"Bare mutual inductance (vector potential): {bare_mutual_A:.3e~P}")
+        self.bare_mutual_A = (pl_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (vector potential): {self.bare_mutual_A:.3e~P}")
         return super().build_model()
 
     def vector_potential(self, positions: np.ndarray) -> np.ndarray:
@@ -160,6 +166,7 @@ class TwoLoopModel(JosephsonNetwork):
         screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
         screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
         mutual = (screening_flux / self.fc_current).to("Phi_0 / A")
+        self.susceptibility = mutual
         print(f"Susceptibility: {mutual:.3e~P}")
         with open(self.json_file, "r") as f:
             metadata = json.load(f)

@@ -296,7 +296,7 @@ def mutual_vector_potential_matrix(graph: nx.DiGraph, integral_n: int = 200):
         rho = distance.cdist(edge_centers, rs)
         MAij += np.einsum("ijk, ik -> ij", edge_vectors / rho[:, :, np.newaxis], dr)
     # TODO: check whether this needs to be transposed...
-    return (ureg("mu_0") * ureg("1 meter") / (4 * np.pi) * MAij.T).to("Phi_0 / A")
+    return (ureg("mu_0") * ureg("1 meter") / (4 * np.pi) * MAij).to("Phi_0 / A")
 
 
 def mutual_inductance_matrix(graph: nx.DiGraph, loops: list[list[int]]):
