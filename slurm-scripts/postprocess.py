@@ -60,3 +60,32 @@ def copy_lowest_energy_solution(job_directory, to_directory=None):
         shutil.copytree(solution, to_directory)
     except Exception:
         traceback.print_exc()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--directory",
+        type=str,
+        default=os.path.join(
+            os.environ["GROUP_SCRATCH"],
+            "josephson-network",
+            "results",
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        type=str,
+        nargs="+",
+    )
+
+    args = parser.parse_args()
+
+    directory = os.path.abspath(args.directory)
+    jobs = [val.lower() for val in args.jobs]
+    if jobs[0] == "all":
+        jobs = os.listdir(directory)
+    for job in jobs:
+        copy_lowest_energy_solution(os.path.join(directory, job))
