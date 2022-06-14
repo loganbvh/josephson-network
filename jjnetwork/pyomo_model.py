@@ -11,7 +11,7 @@ from .graph_utils import basis_loops, round_trip
 from .em import (
     Phi_0,
     eV,
-    # mutual_vector_potential_matrix,
+    mutual_vector_potential_matrix,
 )
 
 
@@ -149,12 +149,12 @@ junction_network.MAij = pyo.Param(
     default=0,
 )
 junction_network.Aij_applied = pyo.Param(junction_network.edges, within=pyo.Reals)
-# junction_network.Aij_induced = pyo.Var(
-#     junction_network.edges, within=pyo.Reals, initialize=0
-# )
-junction_network.Aij_induced = pyo.Param(
+junction_network.Aij_induced = pyo.Var(
     junction_network.edges, within=pyo.Reals, initialize=0
 )
+# junction_network.Aij_induced = pyo.Param(
+#     junction_network.edges, within=pyo.Reals, initialize=0
+# )
 junction_network.Aij = pyo.Expression(junction_network.edges, rule=total_Aij_rule)
 
 junction_network.theta = pyo.Expression(junction_network.edges, rule=theta_rule)
@@ -162,10 +162,12 @@ junction_network.Ic = pyo.Expression(junction_network.edges, rule=critical_curre
 junction_network.current = pyo.Expression(junction_network.edges, rule=current_rule)
 junction_network.energy = pyo.Expression(junction_network.edges, rule=energy_rule)
 
-# junction_network.Aij_induced_constraint = pyo.Constraint(
-#     junction_network.edges,
-#     rule=induced_Aij_rule,
-# )
+junction_network.Aij_induced_constraint = pyo.Constraint(
+    junction_network.edges,
+    rule=induced_Aij_rule,
+)
+
+# junction_network.Aij_induced_constraint = pyo.ConstraintList()
 
 junction_network.node_current = pyo.Expression(
     junction_network.nodes,
@@ -239,7 +241,7 @@ def graph_to_model(
     source_nodes: Optional[np.ndarray] = None,
     drain_nodes: Optional[np.ndarray] = None,
     source_drain_current: Optional[float] = None,
-    # include_screening: bool = True,
+    include_screening: bool = True,
 ) -> ModelInfo:
     """Populates a ``junction_network`` model from a directed graph."""
     if source_drain_current is None:
@@ -266,20 +268,20 @@ def graph_to_model(
     for name in edge_attrs:
         model_data[name] = {(i, j): val for i, j, val in graph.edges.data(name)}
 
-    # if include_screening:
-    #     print("Calculating mutual vector potential matrix...")
-    #     MAij = mutual_vector_potential_matrix(graph).to("Phi_0 / A").magnitude
-    #     model_data["MAij"] = {
-    #         edges[kl] + edges[ij]: A for (kl, ij), A in np.ndenumerate(MAij)
-    #     }
+    if include_screening:
+        print("Calculating mutual vector potential matrix...")
+        MAij = mutual_vector_potential_matrix(graph).to("Phi_0 / A").magnitude
+        model_data["MAij"] = {
+            edges[kl] + edges[ij]: A for (kl, ij), A in np.ndenumerate(MAij)
+        }
 
     print("Constructing Pyomo model...")
     model = junction_network.create_instance({None: model_data})
 
-    # if not include_screening:
-    #     for edge in model.edges:
-    #         model.Aij_induced[edge].fix(0)
-    #     model.Aij_induced_constraint.deactivate()
+    if not include_screening:
+        for edge in model.edges:
+            model.Aij_induced[edge].fix(0)
+        model.Aij_induced_constraint.deactivate()
 
     current_scale = pyo.value(model.current_scale)
     loop_info = LoopInfo()
