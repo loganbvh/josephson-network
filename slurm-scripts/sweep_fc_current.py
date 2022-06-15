@@ -22,6 +22,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lattice-constant", type=float, default=0.5, help="Lattice constant in um."
     )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Don't actually move any files."
+    )
 
     args = parser.parse_args()
     if args.currents is not None:
@@ -39,8 +42,12 @@ if __name__ == "__main__":
         " square-array-twoloop.sbatch"
     )
 
+    if args.dry_run:
+        print("DRY RUN:")
+
     for current in currents:
         cmd = base_cmd.format(current)
         print(cmd)
-        print(os.popen(cmd).read())
-        time.sleep(0.1)
+        if not args.dry_run:
+            print(os.popen(cmd).read())
+            time.sleep(0.1)
