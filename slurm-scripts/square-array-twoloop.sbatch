@@ -38,7 +38,7 @@ python -m jjnetwork.scripts.susceptibility \
     --fc-current="${fc_current} mA" \
     --junction-I0="260 nA" \
     --island-diameter="0 nm" \
-    --junction-d0="${lattice_constant} nm" \
+    --junction-d0="${lattice_constant} um" \
     --junction-length-dependence="power_law" \
     --starts=10
 

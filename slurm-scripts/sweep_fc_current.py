@@ -20,7 +20,7 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
-        "--lattice-constant", type=float, default=500, help="Lattice constant in nm."
+        "--lattice-constant", type=float, default=0.5, help="Lattice constant in um."
     )
 
     args = parser.parse_args()
@@ -42,5 +42,5 @@ if __name__ == "__main__":
     for current in currents:
         cmd = base_cmd.format(current)
         print(cmd)
-        os.popen(cmd).read()
+        print("\t" + os.popen(cmd).read() + "\n")
         time.sleep(0.1)
