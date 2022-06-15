@@ -87,6 +87,8 @@ class SSMModel(JosephsonNetwork):
         "squid_points",
         "squid_iterations",
         "squid_fname",
+        "bare_mutual",
+        "susceptibility",
     ] + JosephsonNetwork.META_ATTRS
 
     def __init__(
@@ -143,6 +145,7 @@ class SSMModel(JosephsonNetwork):
         pl_fluxoid = sum(self.fc_solution.hole_fluxoid("pl_center", units="Phi_0"))
         self.bare_mutual = (pl_fluxoid / I_fc).to("Phi_0/A")
         print(f"Bare mutual inductance: {self.bare_mutual:~.3fP}")
+        self.susceptibility = None
 
         super().__init__(**kwargs)
 
