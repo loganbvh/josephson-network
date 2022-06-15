@@ -445,7 +445,7 @@ def initialize_variables(
     print(f"Max Aij: {max_Aij:.4e}")
 
     for node in model.nodes:
-        model.phase[node].value = rng.normal(loc=0, scale=2 * np.pi * max_Aij)
+        model.phase[node].value = rng.normal(loc=0, scale=4 * np.pi * max_Aij)
 
 
 def set_model_flexible(
