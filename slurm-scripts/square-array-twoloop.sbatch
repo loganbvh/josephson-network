@@ -31,15 +31,15 @@ python -m jjnetwork.scripts.susceptibility \
     --lattice-constant=$lattice_constant \
     --junction-cutoff-radius=0.7 \
     --patch-radius-factor=3 \
-    --fc-radius=6.8 \
-    --pl-radius=2.5 \
-    --fc-center 0 0 2 \
-    --pl-center 0 0 1.5 \
+    --fc-radius=3.0 \
+    --pl-radius=1.5 \
+    --fc-center 0 0 3 \
+    --pl-center 0 0 3 \
     --fc-current="${fc_current} mA" \
     --junction-I0="260 nA" \
-    --island-diameter="260 nm" \
+    --island-diameter="0 nm" \
     --junction-d0="${lattice_constant} nm" \
     --junction-length-dependence="power_law" \
-    --starts=5
+    --starts=10
 
 mv "slurm-${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" $outdir/logs/

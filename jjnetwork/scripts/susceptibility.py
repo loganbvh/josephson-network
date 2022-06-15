@@ -169,12 +169,14 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--include-screening",
-        action="store_true",
+        type=bool,
+        default=False,
         help="Whether to include screening in the calculation.",
     )
 
     args = parser.parse_args()
     kwargs = vars(args)
+    print(kwargs)
     model_type = kwargs.pop("model")
     number_of_starts = kwargs.pop("starts")
     geometry = kwargs.pop("geometry")
@@ -209,13 +211,11 @@ if __name__ == "__main__":
 
         if geometry == "square":
             a = lattice_constant
-            width = height = (
-                2.5 * a * kwargs["fc_radius"] * kwargs["patch_radius_factor"]
-            )
-            xs = np.linspace(-width / (2 * a), width / (2 * a), 2 * int(width / a) + 1)
-            ys = np.linspace(
-                -height / (2 * a), height / (2 * a), 2 * int(height / a) + 1
-            )
+            # width = height = 2 * (
+            #     (2.5 * kwargs["fc_radius"] * kwargs["patch_radius_factor"]) // 2 + 1
+            # )
+            width = height = 100
+            xs = ys = np.linspace(-width / 2, width / 2, int(width / a) + 1)
             X, Y = np.meshgrid(xs, ys)
             island_positions = np.stack([X.ravel(), Y.ravel()], axis=1)
     else:

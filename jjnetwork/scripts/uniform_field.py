@@ -101,11 +101,12 @@ if __name__ == "__main__":
             "If rng-seed is 0, junctions are initialized to zero."
         ),
     )
-    # parser.add_argument(
-    #     "--include-screening",
-    #     action="store_true",
-    #     help="Whether to include screening in the calculation."
-    # )
+    parser.add_argument(
+        "--include-screening",
+        type=bool,
+        default=False,
+        help="Whether to include screening in the calculation.",
+    )
 
     args = parser.parse_args()
     kwargs = vars(args)
@@ -125,10 +126,8 @@ if __name__ == "__main__":
         if geometry == "square":
             a = lattice_constant
             width, height = a * np.array(array_size)
-            xs = np.linspace(-width / (2 * a), width / (2 * a), 2 * int(width / a) + 1)
-            ys = np.linspace(
-                -height / (2 * a), height / (2 * a), 2 * int(height / a) + 1
-            )
+            xs = np.linspace(-width / 2, width / 2, int(width / a) + 1)
+            ys = np.linspace(-height / 2, height / 2, int(height / a) + 1)
             X, Y = np.meshgrid(xs, ys)
             island_positions = np.stack([X.ravel(), Y.ravel()], axis=1)
     else:
