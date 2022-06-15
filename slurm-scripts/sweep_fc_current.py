@@ -42,5 +42,5 @@ if __name__ == "__main__":
     for current in currents:
         cmd = base_cmd.format(current)
         print(cmd)
-        print("\t" + os.popen(cmd).read() + "\n")
+        print(os.popen(cmd).read())
         time.sleep(0.1)
