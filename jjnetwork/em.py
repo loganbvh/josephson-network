@@ -4,10 +4,10 @@ import networkx as nx
 import numpy as np
 import pint
 import scipy.linalg as la
-
 from scipy import interpolate
 from scipy.spatial import distance
 from scipy import special
+from tqdm import tqdm
 
 from .geometry import unit_vector
 from .graph_utils import get_node_positions, round_trip
@@ -258,53 +258,60 @@ def calculate_vector_potential_from_graph(
     return mu_0 / (4 * np.pi) * np.nansum(integrand, axis=1) * ureg("T * m")
 
 
-def mutual_vector_potential_matrix(graph: nx.DiGraph, integral_n: int = 200):
-    nodes = graph.nodes
-    edge_centers = []
-    edge_vectors = []
+def edge_mutual_inductance_matrix(graph: nx.DiGraph):
     positions = get_node_positions(graph)
     edge_indices = np.array(graph.edges)
-    for i, j in graph.edges:
-        r1 = nodes[i]["position"]
-        r2 = nodes[j]["position"]
-        edge_centers.append((r1 + r2) / 2)
-        edge_vectors.append(r2 - r1)
-    edge_centers = np.stack(edge_centers, axis=0)
-    edge_vectors = np.stack(edge_vectors, axis=0)
-    # Add a zero z coordinate
-    edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
-    edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
-    positions = np.append(positions, np.zeros_like(positions[:, :1]), axis=1)
     positions_i = positions[edge_indices[:, 0]]
     positions_j = positions[edge_indices[:, 1]]
     # Integrate A along the path from i to j
-    index = np.linspace(0, 1, integral_n)
-    xs_ij = interpolate.interp1d(
+    index_outer = np.linspace(0, 1, 60)
+    index_inner = np.linspace(0, 1, 50)[1:-1]
+
+    def diff(arr: np.array, axis: int):
+        # https://stackoverflow.com/questions/41875803/
+        # use-np-diff-but-assume-the-input-starts-with-an-extra-zero
+        return np.diff(
+            arr,
+            axis=axis,
+            prepend=np.expand_dims(np.take(arr, 0, axis=axis), axis=axis),
+        )
+
+    xs_interp = interpolate.interp1d(
         [0, 1],
         np.stack((positions_i[:, 0], positions_j[:, 0]), axis=0),
         axis=0,
-    )(index)
-    ys_ij = interpolate.interp1d(
+    )
+    ys_interp = interpolate.interp1d(
         [0, 1],
         np.stack((positions_i[:, 1], positions_j[:, 1]), axis=0),
         axis=0,
-    )(index)
-    positions_ij = np.stack([xs_ij, ys_ij, np.zeros_like(xs_ij)], axis=-1)
-    drs = np.diff(positions_ij, axis=0)
-    MAij = np.zeros((edge_centers.shape[0], edge_centers.shape[0]))
-    for rs, dr in zip(positions_ij, drs):
-        rho = distance.cdist(edge_centers, rs)
-        MAij += np.einsum("ijk, ik -> ij", edge_vectors / rho[:, :, np.newaxis], dr)
-    # TODO: check whether this needs to be transposed...
-    return (ureg("mu_0") * ureg("1 meter") / (4 * np.pi) * MAij).to("Phi_0 / A")
+    )
+    # ij: Inner integral (source edges)
+    # kl: Outer integral (eval. edges)
+    xs_kl = xs_interp(index_outer)
+    ys_kl = ys_interp(index_outer)
+    rs_kl = np.stack([xs_kl, ys_kl], axis=-1)
+    drs_kl = diff(rs_kl, axis=0)
+    xs_ij = xs_interp(index_inner)
+    ys_ij = ys_interp(index_inner)
+    rs_ij = np.stack([xs_ij, ys_ij], axis=-1)
+    drs_ij = diff(rs_ij, axis=0)
+
+    MAij = np.zeros((edge_indices.shape[0], edge_indices.shape[0]))
+    for r_kl, dr_kl in tqdm(zip(rs_kl, drs_kl), total=rs_kl.shape[0], desc="Edges"):
+        MAij_inner = np.zeros((edge_indices.shape[0], edge_indices.shape[0], 2))
+        for r_ij, dr_ij in zip(rs_ij, drs_ij):
+            rho = distance.cdist(r_ij, r_kl)
+            MAij_inner += dr_ij / rho[:, :, np.newaxis]
+        MAij += np.einsum("ijk, ik -> ij", MAij_inner, dr_kl)
+    return mu_0 / (4 * np.pi * Phi_0) * MAij
 
 
-def mutual_inductance_matrix(graph: nx.DiGraph, loops: list[list[int]]):
+def loop_mutual_inductance_matrix(graph: nx.DiGraph, loops: list[list[int]]):
     num_loops = len(loops)
     edges = np.array(graph.edges)
     num_edges = edges.shape[0]
-    MAij = mutual_vector_potential_matrix(graph)
-    MAij = MAij.to("Phi_0 / A").magnitude
+    MAij = edge_mutual_inductance_matrix(graph)
 
     def edge_sign(edge):
         # 1 if edge in edges else -1

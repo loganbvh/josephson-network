@@ -469,8 +469,16 @@ class JosephsonNetwork(ABC):
                 store["loops"] = pd.DataFrame(loop_data)
                 store["nonzero_loops"] = pd.Series(nonzero_loops)
 
+        josephson_energy = sum(
+            energy for _, _, energy in graph.edges.data("josephson_energy")
+        )
+        inductive_energy = sum(
+            energy for _, _, energy in graph.edges.data("inductive_energy")
+        )
         total_energy = sum(energy for _, _, energy in graph.edges.data("energy"))
-        print(f"Total energy: {total_energy:.3e} eV.")
+        print(f"Josephson energy: {josephson_energy:.3e} eV")
+        print(f"Inductive energy: {inductive_energy:.3e} eV")
+        print(f"Total energy: {total_energy:.3e} eV")
 
         print("Drawing currents...")
         fig, axes = draw_currents(df, linewidth=3, cmap="inferno")
@@ -490,6 +498,8 @@ class JosephsonNetwork(ABC):
         metadata["termination_condition"] = str(
             self.pyomo_result.solver.termination_condition
         )
+        metadata["josephson_energy"] = f"{josephson_energy:.6e} eV"
+        metadata["inductive_energy"] = f"{inductive_energy:.6e} eV"
         metadata["energy"] = f"{total_energy:.6e} eV"
         metadata["vortices"] = {}
         for n, v in enumerate(vortices):
@@ -515,11 +525,11 @@ class JosephsonNetwork(ABC):
         if resolve_with_current_conservation:
             number_of_starts *= 2
         while (self.solve_iteration - curr_iterations) < number_of_starts:
-            set_model_flexible(model)
+            set_model_flexible(model, include_screening=self.include_screening)
             self.single_solve()
             self.solve_iteration += 1
             if resolve_with_current_conservation:
-                set_model_strict(model)
+                set_model_strict(model, include_screening=self.include_screening)
                 self.single_solve(reinitialize=False)
                 self.solve_iteration += 1
 
