@@ -15,12 +15,13 @@ from .geometry import (
 )
 from .junctions import josephson_energy_power_law, josephson_energy_exponential
 
-ureg = em.ureg
 
 EJ_funcs = {
     "power_law": josephson_energy_power_law,
     "exponential": josephson_energy_exponential,
 }
+
+ureg = em.ureg
 
 
 class UniformFieldModel(JosephsonNetwork):

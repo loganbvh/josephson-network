@@ -377,3 +377,60 @@ def draw_currents(
     cbar = fig.colorbar(im, ax=bx)
     cbar.set_label("$|I| / I_c$")
     return fig, (ax, bx)
+
+
+def draw_loops(
+    graph: nx.DiGraph,
+    loops: list[list[int]],
+    annotate: bool = False,
+    ax: Optional[plt.Axes] = None,
+    **kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    positions = get_node_positions(graph) * 1e6
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    ax.set_aspect("equal")
+    kwargs["marker"] = kwargs.get("marker", ".")
+    kwargs["markersize"] = kwargs.get("markersize", 2)
+    for i, loop in enumerate(loops):
+        loop_positions = positions[loop]
+        loop_center = loop_positions[1:].mean(axis=0)
+        ax.plot(loop_positions[:, 0], loop_positions[:, 1], **kwargs)
+        if annotate:
+            ax.annotate(str(i), loop_center, ha="center", va="center")
+    return fig, ax
+
+
+def draw_vortices(
+    graph: nx.DiGraph,
+    loops: list[list[int]],
+    plus_color: str = "r",
+    minus_color: str = "b",
+    ax: Optional[plt.Axes] = None,
+    **kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+
+    from .pyomo_model import calculate_loop_info
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+
+    node_positions = get_node_positions(graph)
+    loop_info = calculate_loop_info(graph, loops)
+    loop_centers = node_positions[loops[:, :-1]].mean(axis=1) * 1e6
+    vortices = np.rint(loop_info.vortices)
+
+    colors = [plus_color if v > 0 else minus_color for v in vortices]
+    fig, ax = draw_loops(graph, loops, ax=ax, **kwargs)
+    _ = ax.scatter(
+        loop_centers[:, 0],
+        loop_centers[:, 1],
+        c=colors,
+        marker="o",
+        s=10 * np.abs(vortices),
+    )
+    return fig, ax

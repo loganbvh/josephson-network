@@ -151,17 +151,17 @@ def triangulate(coords, min_triangles=None, convex_hull=True, **kwargs):
     return points, triangles
 
 
-def polygon_centroids(points: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+def polygon_centroids(points: np.ndarray, vertices: np.ndarray) -> np.ndarray:
     """Returns x, y coordinates for polygon centroids (centers of mass).
 
     Args:
         points: Shape (n, 2) array of x, y coordinates of vertices.
-        polygons: Shape (m, p) array of polygon indices.
+        vertices: Shape (m, p) array of polygon indices.
 
     Returns:
-        Shape (m, 2) array of triangle centroid (center of mass) coordinates
+        Shape (m, 2) array of polygon centroid (center of mass) coordinates
     """
-    return points[triangles].mean(axis=1)
+    return points[vertices].mean(axis=1)
 
 
 def triangle_areas(points: np.ndarray, triangles: np.ndarray) -> np.ndarray:
