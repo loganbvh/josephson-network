@@ -200,7 +200,8 @@ class JosephsonNetwork(ABC):
         self.length_units = ureg(length_units)
         rng_seed = int(rng_seed)
         if rng_seed == -1:
-            rng_seed = int(self.timing.run_start.timestamp())
+            # rng_seed = int(self.timing.run_start.timestamp())
+            rng_seed = np.random.SeedSequence().entropy
         self.base_rng_seed = rng_seed
 
         island_positions = np.atleast_2d(island_positions)
