@@ -29,7 +29,7 @@ python -m jjnetwork.scripts.susceptibility \
     --model="twoloop" \
     --geometry="square" \
     --lattice-constant=$lattice_constant \
-    --junction-cutoff-radius=0.7 \
+    --junction-cutoff-radius=$lattice_constant \
     --patch-radius-factor=4 \
     --fc-radius=3.0 \
     --pl-radius=1.5 \
