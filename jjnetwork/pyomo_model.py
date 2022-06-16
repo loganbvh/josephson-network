@@ -130,7 +130,7 @@ junction_network = pyo.AbstractModel()
 junction_network.current_scale = pyo.Param(initialize=1e6, mutable=True)
 junction_network.energy_scale = pyo.Param(initialize=1e4, mutable=True)
 
-junction_network.nodes = pyo.Set()
+junction_network.nodes = pyo.Set(dimen=1)
 junction_network.source_nodes = pyo.Set(within=junction_network.nodes)
 junction_network.drain_nodes = pyo.Set(within=junction_network.nodes)
 junction_network.boundary_nodes = (
@@ -462,8 +462,9 @@ def set_model_flexible(
     model.current_conservation.deactivate()
     max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.current_scale.value = 1 / max_Ic
-    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    model.energy_scale.value = 1e1 / E0
+    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    # model.energy_scale.value = 1e2 / E0
+    model.energy_scale.value = 5 * len(model.edges)
 
 
 def set_model_strict(model: pyo.ConcreteModel, include_screening: bool = False) -> None:
@@ -478,5 +479,6 @@ def set_model_strict(model: pyo.ConcreteModel, include_screening: bool = False) 
     model.current_conservation.activate()
     max_Ic = max(pyo.value(model.Ic[edge]) for edge in model.edges)
     model.current_scale.value = 1e3 / max_Ic
-    E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
-    model.energy_scale.value = 1e1 / E0
+    # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
+    # model.energy_scale.value = 1e2 / E0
+    model.energy_scale.value = 5 * len(model.edges)
