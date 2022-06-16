@@ -147,10 +147,6 @@ class JosephsonNetwork(ABC):
         directory: The base directory in which to save results.
         island_positions: An array of (x, y) island positions in ``length_units``.
         length_units: Pint-parseable string representing the units used for lengths.
-        rng_seed: An integer used to seed the random number generator for island phase
-            initialization. If set to zero, phases will be initialized to zero. If set
-            to -1, rng_seed will be changed to the timestamp of the start of the
-            simulation.
     """
 
     ureg = ureg
@@ -165,7 +161,7 @@ class JosephsonNetwork(ABC):
         "source_drain_current",
         "include_screening",
         "length_units",
-        "base_rng_seed",
+        "rng_seed",
         "solve_iteration",
     ]
 
@@ -181,7 +177,6 @@ class JosephsonNetwork(ABC):
         source_drain_current: Optional[Union[str, float]] = None,
         include_screening: bool = False,
         length_units: str = "um",
-        rng_seed: int = -1,
     ):
         directory = os.path.abspath(directory)
         # Ensure a unique directory name for each simulation
@@ -198,11 +193,7 @@ class JosephsonNetwork(ABC):
         self.timing = TimingInfo(run_start=run_start)
         self.include_screening = include_screening
         self.length_units = ureg(length_units)
-        rng_seed = int(rng_seed)
-        if rng_seed == -1:
-            # rng_seed = int(self.timing.run_start.timestamp())
-            rng_seed = np.random.SeedSequence().entropy
-        self.base_rng_seed = rng_seed
+        self.rng_seed = None
 
         island_positions = np.atleast_2d(island_positions)
         self.island_positions = island_positions
@@ -262,13 +253,8 @@ class JosephsonNetwork(ABC):
     def json_file(self) -> os.PathLike:
         return os.path.join(self.outdir, "metadata.json")
 
-    @property
-    def rng_seed(self) -> int:
-        if self.base_rng_seed:
-            return self.base_rng_seed + self.solve_iteration
-        return self.base_rng_seed
-
     def make_rng(self) -> np.random.Generator:
+        self.rng_seed = np.random.SeedSequence().entropy
         return np.random.default_rng(self.rng_seed)
 
     def compute_neighbors(self) -> None:

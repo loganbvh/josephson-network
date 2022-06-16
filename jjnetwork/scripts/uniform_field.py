@@ -93,15 +93,6 @@ if __name__ == "__main__":
         help="Pint-parsable string representing the island diameter.",
     )
     parser.add_argument(
-        "--rng-seed",
-        type=int,
-        default=-1,
-        help=(
-            "RNG seed for initial junction phases. "
-            "If rng-seed is 0, junctions are initialized to zero."
-        ),
-    )
-    parser.add_argument(
         "--include-screening",
         type=bool,
         default=False,

@@ -53,6 +53,7 @@ def copy_lowest_energy_solution(job_directory, to_directory=None):
     if not solutions:
         print(f"No solutions in {job_directory}.")
         return
+    print(f"Found {len(solutions)} total solutions.")
     solution, energy = list(solutions.items())[0]
     print(solution, energy)
     print(f"Copying {solution} -> {to_directory}.")
