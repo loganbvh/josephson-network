@@ -56,6 +56,9 @@ def copy_lowest_energy_solution(job_directory, to_directory=None):
     print(f"Found {len(solutions)} total solutions.")
     solution, energy = list(solutions.items())[0]
     print(solution, energy)
+    if os.path.isdir(to_directory):
+        print(f"Skipping {to_directory} - directory already exists.")
+        return
     print(f"Copying {solution} -> {to_directory}.")
     try:
         shutil.copytree(solution, to_directory)
