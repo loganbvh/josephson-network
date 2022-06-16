@@ -24,7 +24,7 @@ from .geometry import contains_points
 from .graph_utils import (
     basis_loops,
     draw_graph,
-    draw_currents,
+    draw_currents_combined,
     edge_data_to_df,
     find_all_cells,
     remove_isolated_islands,
@@ -468,7 +468,7 @@ class JosephsonNetwork(ABC):
         print(f"Total energy: {total_energy:.3e} eV")
 
         print("Drawing currents...")
-        fig, axes = draw_currents(df, linewidth=3, cmap="inferno")
+        fig, axes = draw_currents_combined(df=df, linewidth=3, cmap="inferno")
         fig.suptitle(outdir)
         fig.savefig(os.path.join(outdir, "currents.pdf"), bbox_inches="tight")
         plt.close(fig)

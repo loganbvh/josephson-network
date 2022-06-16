@@ -14,6 +14,7 @@ from .graph_utils import (
     load_graph_h5,
     draw_graph,
     draw_currents,
+    draw_currents_combined,
     draw_loops,
     draw_vortices,
 )

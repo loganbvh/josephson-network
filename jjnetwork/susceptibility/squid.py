@@ -199,7 +199,7 @@ class SSMModel(JosephsonNetwork):
         plt.close(fig)
 
         df = gu.edge_data_to_df(graph)
-        fig, axes = gu.draw_currents(df, linewidth=3, cmap="inferno")
+        fig, axes = gu.draw_currents_combined(df=df, linewidth=3, cmap="inferno")
         title = [
             self.outdir,
             (

@@ -275,13 +275,13 @@ def edge_data_to_df(graph: nx.Graph) -> pd.DataFrame:
     edge_data = extract_edge_data(graph)
     df = pd.DataFrame(edge_data).T
     df.index.names = ["node1", "node2"]
-    return df.sort_index()
+    return df.sort_index().infer_objects()
 
 
 def load_h5(filename: str) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
-    df_edge = pd.read_hdf(filename, "edge_data")
-    df_loop = pd.read_hdf(filename, "loops")
-    vortices = pd.read_hdf(filename, "nonzero_loops").values
+    df_edge = pd.read_hdf(filename, "edge_data").infer_objects()
+    df_loop = pd.read_hdf(filename, "loops").infer_objects()
+    vortices = pd.read_hdf(filename, "nonzero_loops").infer_objects().values
     return df_edge, df_loop, vortices
 
 
@@ -300,6 +300,7 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
         nx.set_node_attributes(graph, node_attrs)
         edge_attrs = [
             "length",
+            "Ic",
             "EJ",
             "Aij",
             "Aij_applied",
@@ -338,44 +339,77 @@ def draw_graph(
 
 
 def draw_currents(
-    df: pd.DataFrame, figsize: tuple[float, float] = (12, 4), **kwargs
+    graph: Optional[nx.DiGraph] = None,
+    df: Optional[pd.DataFrame] = None,
+    normalize: bool = False,
+    ax: plt.Axes = None,
+    **kwargs,
 ) -> tuple[plt.Figure, plt.Axes]:
-    node1_positions = np.stack([df["node1_x"], df["node1_y"]], axis=1) * 1e6
-    node2_positions = np.stack([df["node2_x"], df["node2_y"]], axis=1) * 1e6
+    if df is None:
+        assert graph is not None
+        df = edge_data_to_df(graph)
+    else:
+        assert graph is None
+    node1_positions = (
+        np.stack([df["node1_x"].values, df["node1_y"].values], axis=1) * 1e6
+    )
+    node2_positions = (
+        np.stack([df["node2_x"].values, df["node2_y"].values], axis=1) * 1e6
+    )
     edge_positions = (node1_positions + node2_positions) / 2
-    edge_vectors = np.stack([df["vector_x"], df["vector_y"]], axis=1) * 1e6
+    edge_vectors = (
+        np.stack([df["vector_x"].values, df["vector_y"].values], axis=1) * 1e6
+    )
     unit_vectors = unit_vector(edge_vectors)
     currents = df["current"].values * 1e9
     unit_vectors *= np.sign(currents)[:, np.newaxis]
     currents = np.abs(currents)
     Ic = df["Ic"].values * 1e9
-    fig, (ax, bx) = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=True)
-    for a in (ax, bx):
-        a.set_aspect("equal")
-        a.set_xlabel("$x$ [$\\mu$m]")
-        a.set_ylabel("$y$ [$\\mu$m]")
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    ax.set_aspect("equal")
+    ax.set_xlabel("$x$ [$\\mu$m]")
+    ax.set_ylabel("$y$ [$\\mu$m]")
+    if normalize:
+        colors = currents / Ic
+        label = "$|I| / I_c$"
+    else:
+        colors = currents
+        label = "Current, $|I|$ [nA]"
 
     im = ax.quiver(
         edge_positions[:, 0],
         edge_positions[:, 1],
         np.abs(currents) * unit_vectors[:, 0],
         np.abs(currents) * unit_vectors[:, 1],
-        currents,
+        colors,
         **kwargs,
     )
     cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label("Current, $|I|$ [nA]")
+    cbar.set_label(label)
+    return fig, ax
 
-    im = bx.quiver(
-        edge_positions[:, 0],
-        edge_positions[:, 1],
-        np.abs(currents) * unit_vectors[:, 0],
-        np.abs(currents) * unit_vectors[:, 1],
-        currents / Ic,
-        **kwargs,
-    )
-    cbar = fig.colorbar(im, ax=bx)
-    cbar.set_label("$|I| / I_c$")
+
+def draw_currents_combined(
+    graph: Optional[nx.DiGraph] = None,
+    df: Optional[pd.DataFrame] = None,
+    figsize: tuple[float, float] = (12, 4),
+    **kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    if df is None:
+        assert graph is not None
+        df = edge_data_to_df(graph)
+    else:
+        assert graph is None
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=True)
+    for a in (ax, bx):
+        a.set_aspect("equal")
+        a.set_xlabel("$x$ [$\\mu$m]")
+        a.set_ylabel("$y$ [$\\mu$m]")
+    draw_currents(df=df, normalize=False, ax=ax, **kwargs)
+    draw_currents(df=df, normalize=True, ax=bx, **kwargs)
     return fig, (ax, bx)
 
 
@@ -392,8 +426,11 @@ def draw_loops(
     else:
         fig = ax.get_figure()
     ax.set_aspect("equal")
-    kwargs["marker"] = kwargs.get("marker", ".")
-    kwargs["markersize"] = kwargs.get("markersize", 2)
+    kwargs = kwargs.copy()
+    kwargs.setdefault("marker", ".")
+    kwargs.setdefault("markersize", 2)
+    kwargs.setdefault("color", "k")
+    kwargs.setdefault("linewidth", 1)
     for i, loop in enumerate(loops):
         loop_positions = positions[loop]
         loop_center = loop_positions[1:].mean(axis=0)
