@@ -40,7 +40,12 @@ def sort_solutions_slurm(job_directory):
     return {k: v for k, v in sorted(solutions.items(), key=lambda x: x[1])}
 
 
-def copy_lowest_energy_solution(job_directory, to_directory=None, dry_run=False):
+def copy_lowest_energy_solution(
+    job_directory,
+    to_directory=None,
+    dry_run=False,
+    force=False,
+):
     job_id = os.path.basename(job_directory)
     if to_directory is None:
         to_directory = os.path.join(
@@ -50,8 +55,15 @@ def copy_lowest_energy_solution(job_directory, to_directory=None, dry_run=False)
         )
     to_directory = os.path.join(to_directory, job_id)
     if os.path.isdir(to_directory):
-        print(f"Skipping {to_directory} - directory already exists.")
-        return
+        if force:
+            if dry_run:
+                print(f"DRY RUN: Directory {to_directory} exists - removing it.")
+            else:
+                print(f"Directory {to_directory} exists - removing it.")
+                shutil.rmtree(to_directory)
+        else:
+            print(f"Skipping {to_directory} - directory already exists.")
+            return
     solutions = sort_solutions_slurm(job_directory)
     if not solutions:
         print(f"No solutions in {job_directory}.")
@@ -88,6 +100,10 @@ if __name__ == "__main__":
         nargs="+",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
     )
@@ -104,4 +120,5 @@ if __name__ == "__main__":
             os.path.join(directory, job),
             to_directory=args.to,
             dry_run=args.dry_run,
+            force=args.force,
         )
