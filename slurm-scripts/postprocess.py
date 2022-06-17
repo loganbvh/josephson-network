@@ -115,19 +115,16 @@ if __name__ == "__main__":
 
     directory = os.path.abspath(args.directory)
     target_jobs = [val.lower() for val in args.jobs]
-    all_jobs = sorted(os.listdir(directory))
     if target_jobs[0] == "all":
-        jobs = all_jobs
+        jobs = sorted(glob.glob(directory))
     else:
         # Match patterns
         jobs = []
-        for job in all_jobs:
-            jobs.extend(
-                [os.path.basename(d) for d in glob.glob(os.path.join(directory, job))]
-            )
+        for job in target_jobs:
+            jobs.extend(glob.glob(os.path.join(directory, job)))
     for job in jobs:
         copy_lowest_energy_solution(
-            os.path.join(directory, job),
+            job,
             to_directory=args.to,
             dry_run=args.dry_run,
             force=args.force,
