@@ -28,7 +28,9 @@ def sort_solutions_by_energy(directory):
 
 def sort_solutions_slurm(job_directory):
     job_directory = os.path.abspath(job_directory)
-    json_files = glob.glob(os.path.join(job_directory, "*/*/*/metadata.json"))
+    json_files = glob.glob(
+        os.path.join(job_directory, "**/metadata.json"), recursive=True
+    )
     solutions = {}
     for json_path in json_files:
         pardir = os.path.basename(os.path.dirname(json_path))
@@ -112,9 +114,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     directory = os.path.abspath(args.directory)
-    jobs = [val.lower() for val in args.jobs]
-    if jobs[0] == "all":
-        jobs = sorted(os.listdir(directory))
+    target_jobs = [val.lower() for val in args.jobs]
+    all_jobs = sorted(os.listdir(directory))
+    if target_jobs[0] == "all":
+        jobs = all_jobs
+    else:
+        # Match patterns
+        jobs = []
+        for job in all_jobs:
+            jobs.extend(
+                [os.path.basename(d) for d in glob.glob(os.path.join(directory, job))]
+            )
     for job in jobs:
         copy_lowest_energy_solution(
             os.path.join(directory, job),
