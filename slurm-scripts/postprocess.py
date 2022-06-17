@@ -40,7 +40,7 @@ def sort_solutions_slurm(job_directory):
     return {k: v for k, v in sorted(solutions.items(), key=lambda x: x[1])}
 
 
-def copy_lowest_energy_solution(job_directory, to_directory=None):
+def copy_lowest_energy_solution(job_directory, to_directory=None, dry_run=False):
     job_id = os.path.basename(job_directory)
     if to_directory is None:
         to_directory = os.path.join(
@@ -59,7 +59,9 @@ def copy_lowest_energy_solution(job_directory, to_directory=None):
     print(f"Found {len(solutions)} total solutions.")
     solution, energy = list(solutions.items())[0]
     print(solution, energy)
-
+    if dry_run:
+        print(f"DRY RUN: Copying {solution} -> {to_directory}.")
+        return
     print(f"Copying {solution} -> {to_directory}.")
     try:
         shutil.copytree(solution, to_directory)
@@ -85,6 +87,10 @@ if __name__ == "__main__":
         type=str,
         nargs="+",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+    )
     parser.add_argument("--to", type=str, default=None, help="Destination directory.")
 
     args = parser.parse_args()
@@ -92,6 +98,10 @@ if __name__ == "__main__":
     directory = os.path.abspath(args.directory)
     jobs = [val.lower() for val in args.jobs]
     if jobs[0] == "all":
-        jobs = os.listdir(directory)
+        jobs = sorted(os.listdir(directory))
     for job in jobs:
-        copy_lowest_energy_solution(os.path.join(directory, job), to_directory=args.to)
+        copy_lowest_energy_solution(
+            os.path.join(directory, job),
+            to_directory=args.to,
+            dry_run=args.dry_run,
+        )

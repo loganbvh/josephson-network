@@ -95,6 +95,16 @@ def build_graph(
     """
     distances = distance.cdist(island_positions, island_positions)
     graph = nx.DiGraph()
+
+    def diff(arr: np.array, axis: int):
+        # https://stackoverflow.com/questions/41875803/
+        # use-np-diff-but-assume-the-input-starts-with-an-extra-zero
+        return np.diff(
+            arr,
+            axis=axis,
+            prepend=np.expand_dims(np.take(arr, 0, axis=axis), axis=axis),
+        )
+
     # Populate islands (nodes)
     for i, p in tqdm(
         enumerate(island_positions),
@@ -125,8 +135,8 @@ def build_graph(
         xs = np.linspace(r1[0], r2[0], vector_potential_points)
         ys = np.linspace(r1[1], r2[1], vector_potential_points)
         rs = np.stack([xs, ys, np.zeros_like(xs)], axis=1)
-        dr = np.diff(rs, axis=0)
-        A = vector_potential_func(rs[:-1])
+        dr = diff(rs, axis=0)
+        A = vector_potential_func(rs)
         Aij = np.trapz(np.sum(A * dr, axis=1)) / Phi_0
         length = distances[i, j]
         EJ = josephson_energy_func(length)

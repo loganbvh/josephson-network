@@ -173,8 +173,17 @@ def current_loop_field(
     thetas = np.linspace(0, 2 * np.pi, num_segments)
     circ = np.stack([np.cos(thetas), np.sin(thetas), np.zeros_like(thetas)], axis=1)
     loop = loop_radius * circ + loop_center
-    dloop = np.diff(loop, axis=0)
-    loop = loop[:-1]
+
+    def diff(arr: np.array, axis: int):
+        # https://stackoverflow.com/questions/41875803/
+        # use-np-diff-but-assume-the-input-starts-with-an-extra-zero
+        return np.diff(
+            arr,
+            axis=axis,
+            prepend=np.expand_dims(np.take(arr, 0, axis=axis), axis=axis),
+        )
+
+    dloop = diff(loop, axis=0)
     return (
         biot_savart(
             positions,

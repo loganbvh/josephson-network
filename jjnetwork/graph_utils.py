@@ -295,7 +295,7 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
         for node, label in zip([i, j], [1, 2]):
             node_attrs[node] = dict(
                 position=np.array([row[f"node{label}_x"], row[f"node{label}_y"]]),
-                phase=np.array([row[f"node{label}_phase"], row[f"node{label}_phase"]]),
+                phase=row[f"node{label}_phase"],
             )
         nx.set_node_attributes(graph, node_attrs)
         edge_attrs = [
@@ -307,6 +307,8 @@ def make_graph_from_df(df: pd.DataFrame) -> nx.DiGraph:
             "Aij_induced",
             "theta",
             "current",
+            "josephson_energy",
+            "inductive_energy",
             "energy",
         ]
         nx.set_edge_attributes(graph, {(i, j): {key: row[key] for key in edge_attrs}})
@@ -378,7 +380,8 @@ def draw_currents(
     else:
         colors = currents
         label = "Current, $|I|$ [nA]"
-
+    kwargs = kwargs.copy()
+    kwargs.setdefault("pivot", "middle")
     im = ax.quiver(
         edge_positions[:, 0],
         edge_positions[:, 1],
@@ -446,6 +449,8 @@ def draw_vortices(
     plus_color: str = "r",
     minus_color: str = "b",
     ax: Optional[plt.Axes] = None,
+    vortex_marker: str = "o",
+    vortex_markersize: float = 10,
     **kwargs,
 ) -> tuple[plt.Figure, plt.Axes]:
 
@@ -467,7 +472,7 @@ def draw_vortices(
         loop_centers[:, 0],
         loop_centers[:, 1],
         c=colors,
-        marker="o",
-        s=10 * np.abs(vortices),
+        marker=vortex_marker,
+        s=vortex_markersize * np.abs(vortices),
     )
     return fig, ax
