@@ -57,6 +57,7 @@ if __name__ == "__main__":
             "ibm.large",
             "ibm.xlarge",
             "huber",
+            "hypres.small",
         ),
         default="ibm.medium",
         help="Model for the SQUID susceptometer.",
@@ -152,7 +153,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--patch-radius-factor",
         type=float,
-        default=2.5,
+        default=3,
         help=(
             "Radius of the patch of islands to be modeled, "
             "in units of the loop_radius."
@@ -160,8 +161,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--include-screening",
-        type=bool,
-        default=False,
+        type=lambda s: bool(int(s)),
+        choices=("0", "1"),
+        default="0",
         help="Whether to include screening in the calculation.",
     )
 

@@ -343,10 +343,13 @@ def draw_graph(
 def draw_currents(
     graph: Optional[nx.DiGraph] = None,
     df: Optional[pd.DataFrame] = None,
+    units: str = "nA",
     normalize: bool = False,
     ax: plt.Axes = None,
     **kwargs,
 ) -> tuple[plt.Figure, plt.Axes]:
+    from .em import ureg
+
     if df is None:
         assert graph is not None
         df = edge_data_to_df(graph)
@@ -363,10 +366,10 @@ def draw_currents(
         np.stack([df["vector_x"].values, df["vector_y"].values], axis=1) * 1e6
     )
     unit_vectors = unit_vector(edge_vectors)
-    currents = df["current"].values * 1e9
+    currents = (df["current"].values * ureg("A")).to(units).magnitude
     unit_vectors *= np.sign(currents)[:, np.newaxis]
     currents = np.abs(currents)
-    Ic = df["Ic"].values * 1e9
+    Ic = (df["Ic"].values * ureg("A")).to(units).magnitude
     if ax is None:
         fig, ax = plt.subplots()
     else:
@@ -379,7 +382,7 @@ def draw_currents(
         label = "$|I| / I_c$"
     else:
         colors = currents
-        label = "Current, $|I|$ [nA]"
+        label = f"Current, $|I|$ [{ureg(units).units:~P}]"
     kwargs = kwargs.copy()
     kwargs.setdefault("pivot", "middle")
     im = ax.quiver(

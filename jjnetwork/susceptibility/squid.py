@@ -59,6 +59,7 @@ squid_map = {
     "ibm.large": squids.ibm.large,
     "ibm.xlarge": squids.ibm.xlarge,
     "huber": squids.huber,
+    "hypres.small": squids.hypres.small,
 }
 
 field_coil_radii = {
@@ -67,6 +68,7 @@ field_coil_radii = {
     "ibm.large": FieldCoil("2.5 um", "3.5 um"),
     "ibm.xlarge": FieldCoil("6.0 um", "8.0 um"),
     "huber": FieldCoil("5.5 um", "8.0 um"),
+    "hypres.small": FieldCoil("1.5 um", "3.0 um"),
 }
 
 
@@ -131,7 +133,7 @@ class SSMModel(JosephsonNetwork):
         self.junction_length_dependence = junction_length_dependence
 
         if self.squid.Del2 is None:
-            self.squid.make_mesh(min_points=squid_points, optimesh_steps=40)
+            self.squid.make_mesh(min_points=squid_points, optimesh_steps=30)
 
         circulating_currents = dict(fc_center=str(self.fc_current))
         I_fc = squid.ureg(circulating_currents["fc_center"])
@@ -199,13 +201,15 @@ class SSMModel(JosephsonNetwork):
         plt.close(fig)
 
         df = gu.edge_data_to_df(graph)
+        energy = sum(energy for _, _, energy in graph.edges.data("energy"))
         fig, axes = gu.draw_currents_combined(df=df, linewidth=3, cmap="inferno")
         title = [
             self.outdir,
             (
-                f"Junction I0: {self.junction_I0}, "
-                f"FC current: {self.fc_current:.2f~P}, "
-                f"Susceptibility: {self.susceptibility:.3e~P}"
+                f"Junction I0: {ureg(self.junction_I0):.3f~P}, "
+                f"FC current: {self.fc_current:.3f~P}, "
+                f"Susceptibility: {self.susceptibility:.3e~P}, "
+                f"Energy: {energy:.4e} eV"
             ),
         ]
         for ax in axes:
@@ -216,5 +220,7 @@ class SSMModel(JosephsonNetwork):
         fig.subplots_adjust(top=0.85)
         fig.savefig(os.path.join(self.outdir, "currents.pdf"), bbox_inches="tight")
         plt.close(fig)
+        self.fc_solution.to_file(os.path.join(self.outdir, "fc_solution"), to_zip=True)
+        self.pl_solution.to_file(os.path.join(self.outdir, "pl_solution"), to_zip=True)
 
         return super().post_process()

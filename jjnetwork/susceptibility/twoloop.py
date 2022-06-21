@@ -195,8 +195,8 @@ class TwoLoopModel(JosephsonNetwork):
         title = [
             self.outdir,
             (
-                f"Junction I0: {self.junction_I0}, "
-                f"FC current: {self.fc_current:.2f~P}, "
+                f"Junction I0: {ureg(self.junction_I0):.3f~P}, "
+                f"FC current: {self.fc_current:.3f~P}, "
                 f"Susceptibility: {mutual:.3e~P}, "
                 f"Energy: {energy:.4e} eV"
             ),

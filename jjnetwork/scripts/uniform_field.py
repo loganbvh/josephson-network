@@ -94,8 +94,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--include-screening",
-        type=bool,
-        default=False,
+        type=lambda s: bool(int(s)),
+        choices=("0", "1"),
+        default="0",
         help="Whether to include screening in the calculation.",
     )
 

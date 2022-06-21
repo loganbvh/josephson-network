@@ -23,7 +23,7 @@ if __name__ == "__main__":
         "--lattice-constant", type=float, default=0.5, help="Lattice constant in um."
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Don't actually move any files."
+        "--dry-run", action="store_true", help="Don't actually submit and jobs."
     )
 
     args = parser.parse_args()
