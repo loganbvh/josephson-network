@@ -45,6 +45,12 @@ if __name__ == "__main__":
         help="SQUID height in length_units.",
     )
     parser.add_argument(
+        "--starts",
+        type=int,
+        default=10,
+        help="Number of solve starts.",
+    )
+    parser.add_argument(
         "--include-screening", action="store_true", help="Whether to include screening."
     )
     parser.add_argument(
