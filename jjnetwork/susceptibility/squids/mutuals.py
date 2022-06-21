@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import superscreen as sc
 
 from . import huber
+from . import hypres
 from . import ibm
 
 
@@ -64,6 +65,7 @@ if __name__ == "__main__":
         "ibm-large": ibm.large.make_squid,
         "ibm-xlarge": ibm.xlarge.make_squid,
         "huber": huber.make_squid,
+        "hypres-small": hypres.small.make_squid,
     }
 
     mutuals = {}

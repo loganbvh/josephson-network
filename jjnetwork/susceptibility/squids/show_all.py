@@ -3,6 +3,7 @@ import argparse
 import matplotlib.pyplot as plt
 
 from . import huber
+from . import hypres
 from . import ibm
 
 if __name__ == "__main__":
@@ -22,6 +23,7 @@ if __name__ == "__main__":
         ibm.large.make_squid,
         ibm.xlarge.make_squid,
         huber.make_squid,
+        hypres.small.make_squid,
     ]
 
     fig, axes = plt.subplots(
