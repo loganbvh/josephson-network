@@ -37,7 +37,7 @@ python -m jjnetwork.scripts.susc_thin_film \
     --squid-position 0 0 $squid_height \
     --squid-iterations=6 \
     --fc-current="${fc_current} mA" \
-    --starts=$starts
+    --starts=$starts \
     --include-screening=$screening
 
 mv "slurm-${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.out" $outdir/logs/
