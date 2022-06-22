@@ -39,7 +39,7 @@ def sort_solutions_slurm(job_directory):
             with open(json_path, "r") as f:
                 metadata = json.load(f)
             energy = ureg(metadata["energy"]).to("eV").magnitude
-            if metadata["solver_status"] != "optimal":
+            if metadata["solver_status"] != "ok":
                 energy = np.inf
             solutions[os.path.dirname(json_path)] = energy
     return {k: v for k, v in sorted(solutions.items(), key=lambda x: x[1])}
