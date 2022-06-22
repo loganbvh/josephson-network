@@ -204,6 +204,7 @@ class JosephsonNetwork(ABC):
         self.include_screening = include_screening
         self.length_units = ureg(length_units)
         self.rng_seed = None
+        self.MAij = None
 
         island_positions = np.atleast_2d(island_positions)
         self.island_positions = island_positions
@@ -345,12 +346,13 @@ class JosephsonNetwork(ABC):
                 vector_potential_func=self.vector_potential,
             )
         print("Building model from graph...")
-        self.model_info = graph_to_model(
+        self.model_info, self.MAij = graph_to_model(
             graph,
             source_nodes=self.source_nodes,
             drain_nodes=self.drain_nodes,
             source_drain_current=self.source_drain_current,
             include_screening=self.include_screening,
+            MAij=self.MAij,
         )
         print("Drawing graph...")
         fig, ax = draw_graph(self.graph)

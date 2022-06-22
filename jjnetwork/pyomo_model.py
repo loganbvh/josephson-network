@@ -274,7 +274,8 @@ def graph_to_model(
     drain_nodes: Optional[np.ndarray] = None,
     source_drain_current: Optional[float] = None,
     include_screening: bool = True,
-) -> ModelInfo:
+    MAij: Optional[np.ndarray] = None,
+) -> tuple[ModelInfo, np.ndarray]:
     """Populates a ``junction_network`` model from a directed graph."""
     if source_drain_current is None:
         source_drain_current = 0
@@ -302,7 +303,8 @@ def graph_to_model(
 
     if include_screening:
         print("Calculating edge mutual inductance matrix...")
-        MAij = edge_mutual_inductance_matrix(graph)
+        if MAij is None:
+            MAij = edge_mutual_inductance_matrix(graph)
         model_data["MAij"] = {
             (edges[kl], edges[ij]): A for (kl, ij), A in np.ndenumerate(MAij)
         }
@@ -347,7 +349,7 @@ def graph_to_model(
         loop_info.applied_flux.append(applied_flux)
         loop_info.gauge_invariant_phase.append(loop_theta)
         loop_info.vortices.append(model.vortices[ell])
-    return ModelInfo(graph, loop_info, model=model)
+    return ModelInfo(graph, loop_info, model=model), MAij
 
 
 def model_to_graph(model: pyo.ConcreteModel) -> nx.DiGraph:
@@ -464,7 +466,7 @@ def set_model_flexible(
     model.current_scale.value = 1 / max_Ic
     # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
     # model.energy_scale.value = 1e2 / E0
-    model.energy_scale.value = 5 * len(model.edges)
+    model.energy_scale.value = 20 * len(model.edges)
 
 
 def set_model_strict(model: pyo.ConcreteModel, include_screening: bool = False) -> None:
@@ -481,4 +483,4 @@ def set_model_strict(model: pyo.ConcreteModel, include_screening: bool = False) 
     model.current_scale.value = 1e3 / max_Ic
     # E0 = Phi_0 * max_Ic / (2 * np.pi) / eV
     # model.energy_scale.value = 1e2 / E0
-    model.energy_scale.value = 5 * len(model.edges)
+    model.energy_scale.value = 20 * len(model.edges)
