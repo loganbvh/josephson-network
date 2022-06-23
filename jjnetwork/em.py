@@ -19,6 +19,16 @@ Phi_0 = ureg("Phi_0").to_base_units().magnitude
 eV = ureg("eV").to_base_units().magnitude
 
 
+def diff(arr: np.array, axis: int) -> np.ndarray:
+    # https://stackoverflow.com/questions/41875803/
+    # use-np-diff-but-assume-the-input-starts-with-an-extra-zero
+    return np.diff(
+        arr,
+        axis=axis,
+        prepend=np.expand_dims(np.take(arr, 0, axis=axis), axis=axis),
+    )
+
+
 def biot_savart(
     eval_positions: np.ndarray,
     *,
@@ -200,34 +210,40 @@ def calculate_field_from_graph(
     positions: np.ndarray,
     graph: nx.DiGraph,
     length_units: str = "um",
+    interp_points: int = 11,
 ) -> np.ndarray:
     positions = np.atleast_2d(positions)
     if not isinstance(positions, pint.Quantity):
         positions = positions * ureg(length_units)
     positions = positions.to("m").magnitude
-    # Extract edge data from the graph
-    nodes = graph.nodes
-    edge_centers = []
-    edge_vectors = []
-    edge_currents = []
-    for i, j, data in graph.edges.data():
-        n1 = nodes[i]
-        n2 = nodes[j]
-        r1 = n1["position"]
-        r2 = n2["position"]
-        edge_centers.append((r1 + r2) / 2)
-        edge_vectors.append(r2 - r1)
-        edge_currents.append(data["current"])
-    edge_centers = np.stack(edge_centers, axis=0)
-    edge_vectors = np.stack(edge_vectors, axis=0)
-    edge_currents = np.array(edge_currents)[:, np.newaxis]
-    # Add a zero z coordinate
-    edge_centers = np.append(edge_centers, np.zeros_like(edge_centers[:, :1]), axis=1)
-    edge_vectors = np.append(edge_vectors, np.zeros_like(edge_vectors[:, :1]), axis=1)
+    node_positions = get_node_positions(graph)
+    edge_indices = np.array(graph.edges)
+    edge_currents = np.array([graph.edges[i, j]["current"] for i, j in edge_indices])
+    positions_i = node_positions[edge_indices[:, 0]]
+    positions_j = node_positions[edge_indices[:, 1]]
+    # Interpolate along edges
+    index = np.linspace(0, 1, interp_points)
+    xs_interp = interpolate.interp1d(
+        [0, 1],
+        np.stack((positions_i[:, 0], positions_j[:, 0]), axis=0),
+        axis=0,
+    )
+    ys_interp = interpolate.interp1d(
+        [0, 1],
+        np.stack((positions_i[:, 1], positions_j[:, 1]), axis=0),
+        axis=0,
+    )
+    xs = xs_interp(index)
+    ys = ys_interp(index)
+    current_positions = np.stack([xs, ys, np.zeros_like(xs)], axis=-1)
+    current_vectors = diff(current_positions, axis=0)
+    current_positions = current_positions.transpose((1, 0, 2)).reshape((-1, 3))
+    current_vectors = current_vectors.transpose((1, 0, 2)).reshape((-1, 3))
+    edge_currents = np.repeat(edge_currents, index.shape[0], axis=0)[:, np.newaxis]
     return biot_savart(
         positions,
-        current_positions=edge_centers,
-        current_vectors=edge_vectors,
+        current_positions=current_positions,
+        current_vectors=current_vectors,
         currents=edge_currents,
     )
 
@@ -275,15 +291,6 @@ def edge_mutual_inductance_matrix(graph: nx.DiGraph):
     # Integrate A along the path from i to j
     index_outer = np.linspace(0, 1, 60)
     index_inner = np.linspace(0, 1, 50)[1:-1]
-
-    def diff(arr: np.array, axis: int):
-        # https://stackoverflow.com/questions/41875803/
-        # use-np-diff-but-assume-the-input-starts-with-an-extra-zero
-        return np.diff(
-            arr,
-            axis=axis,
-            prepend=np.expand_dims(np.take(arr, 0, axis=axis), axis=axis),
-        )
 
     xs_interp = interpolate.interp1d(
         [0, 1],
