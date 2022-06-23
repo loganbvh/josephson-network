@@ -51,6 +51,12 @@ if __name__ == "__main__":
         help="Number of solve starts.",
     )
     parser.add_argument(
+        "--rpatch",
+        type=float,
+        default=5,
+        help="Patch radius in units of FC effective radius.",
+    )
+    parser.add_argument(
         "--include-screening", action="store_true", help="Whether to include screening."
     )
     parser.add_argument(

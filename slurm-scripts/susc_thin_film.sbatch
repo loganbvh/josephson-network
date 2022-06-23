@@ -33,7 +33,7 @@ python -m jjnetwork.scripts.susc_thin_film \
     --lambda0=$lambda0 \
     --thickness=$thickness \
     --xi0=$xi0 \
-    --patch-radius-factor=4.5 \
+    --patch-radius-factor=$rpatch \
     --squid-position 0 0 $squid_height \
     --squid-iterations=6 \
     --fc-current="${fc_current} mA" \
