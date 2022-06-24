@@ -118,6 +118,7 @@ def induced_Aij_rule(m, *edge):
     return m.Aij_induced[edge] == sum(
         m.MAij[edge, source_edge] * m.current[source_edge] / m.current_scale
         for source_edge in m.edges
+        if source_edge != edge
     )
 
 
@@ -159,9 +160,6 @@ junction_network.Aij_applied = pyo.Param(junction_network.edges, within=pyo.Real
 junction_network.Aij_induced = pyo.Var(
     junction_network.edges, within=pyo.Reals, initialize=0
 )
-# junction_network.Aij_induced = pyo.Param(
-#     junction_network.edges, within=pyo.Reals, initialize=0
-# )
 junction_network.Aij = pyo.Expression(junction_network.edges, rule=total_Aij_rule)
 
 junction_network.theta = pyo.Expression(junction_network.edges, rule=theta_rule)
@@ -173,12 +171,6 @@ junction_network.josephson_energy = pyo.Expression(
 junction_network.inductive_energy = pyo.Expression(
     junction_network.edges, rule=inductive_energy_rule
 )
-
-# junction_network.Aij_induced_constraint = pyo.Constraint(
-#     junction_network.edges,
-#     rule=induced_Aij_rule,
-# )
-
 junction_network.Aij_induced_constraint = pyo.ConstraintList()
 
 junction_network.node_current = pyo.Expression(
