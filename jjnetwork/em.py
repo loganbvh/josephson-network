@@ -293,12 +293,12 @@ def edge_mutual_inductance_matrix(graph: nx.DiGraph):
     index_inner = np.linspace(0, 1, 50)[1:-1]
 
     xs_interp = interpolate.interp1d(
-        [0, 1],
+        (0, 1),
         np.stack((positions_i[:, 0], positions_j[:, 0]), axis=0),
         axis=0,
     )
     ys_interp = interpolate.interp1d(
-        [0, 1],
+        (0, 1),
         np.stack((positions_i[:, 1], positions_j[:, 1]), axis=0),
         axis=0,
     )
