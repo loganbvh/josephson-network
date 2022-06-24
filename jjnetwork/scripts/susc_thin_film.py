@@ -6,7 +6,7 @@ from ..susceptibility import TwoLoopModel, SSMModel
 
 def lambda_vs_T(T: float, Tc: float = 1.0, lambda_0: float = 1.0):
     # London penetration depth for T \approx T_c
-    return lambda_0 / np.sqrt(2 * (1 - (T / Tc)))
+    return lambda_0 / np.sqrt((1 - (T / Tc) ** 2))
 
 
 def xi_vs_T(T: float, Tc: float = 1.0, xi_0: float = 1.0, bcs_prefactor: float = 0.74):
