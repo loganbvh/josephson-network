@@ -320,6 +320,7 @@ def edge_mutual_inductance_matrix(graph: nx.DiGraph):
             rho = distance.cdist(r_ij, r_kl)
             MAij_inner += dr_ij / rho[:, :, np.newaxis]
         MAij += np.einsum("ijk, ik -> ij", MAij_inner, dr_kl)
+    np.fill_diagonal(MAij, 0)
     return mu_0 / (4 * np.pi * Phi_0) * MAij
 
 
