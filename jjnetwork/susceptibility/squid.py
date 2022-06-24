@@ -104,6 +104,7 @@ class SSMModel(JosephsonNetwork):
         squid_fname: Optional[str] = None,
         squid_points: int = 5000,
         squid_iterations: int = 4,
+        solve_dtype: str = "float32",
         **kwargs,
     ):
         self.squid_fname = squid_fname
@@ -116,6 +117,7 @@ class SSMModel(JosephsonNetwork):
         self.squid_points = squid_points
         self.squid_iterations = squid_iterations
         self.squid = squid.translate(*self.squid_position.squeeze())
+        self.squid.solve_dtype = solve_dtype
         self.fc_current = ureg(fc_current)
         # Remove points lying outside the patch radius
         length_units = kwargs["length_units"]
