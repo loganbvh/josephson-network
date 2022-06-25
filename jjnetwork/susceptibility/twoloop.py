@@ -163,7 +163,9 @@ class TwoLoopModel(JosephsonNetwork):
         print("Calculating screening field...")
         graph = self.graph
         pl_areas = self.pl_areas
-        screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
+        screening_field = em.calculate_field_from_graph(
+            self.pl_centroids, graph, chunk_size=200
+        )[:, 2]
         screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
         mutual = (screening_flux / self.fc_current).to("Phi_0 / A")
         self.susceptibility = mutual

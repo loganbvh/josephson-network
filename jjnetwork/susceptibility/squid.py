@@ -104,7 +104,7 @@ class SSMModel(JosephsonNetwork):
         squid_fname: Optional[str] = None,
         squid_points: int = 5000,
         squid_iterations: int = 4,
-        solve_dtype: str = "float32",
+        solve_dtype: str = "float64",
         **kwargs,
     ):
         self.squid_fname = squid_fname

@@ -1,4 +1,4 @@
-from typing import Sequence, Union
+from typing import Sequence, Union, Optional
 
 import networkx as nx
 import numpy as np
@@ -211,6 +211,7 @@ def calculate_field_from_graph(
     graph: nx.DiGraph,
     length_units: str = "um",
     interp_points: int = 11,
+    chunk_size: Optional[int] = None,
 ) -> np.ndarray:
     positions = np.atleast_2d(positions)
     if not isinstance(positions, pint.Quantity):
@@ -240,12 +241,33 @@ def calculate_field_from_graph(
     current_positions = current_positions.transpose((1, 0, 2)).reshape((-1, 3))
     current_vectors = current_vectors.transpose((1, 0, 2)).reshape((-1, 3))
     edge_currents = np.repeat(edge_currents, index.shape[0], axis=0)[:, np.newaxis]
-    return biot_savart(
-        positions,
+    if chunk_size is None:
+        return biot_savart(
+            positions,
+            current_positions=current_positions,
+            current_vectors=current_vectors,
+            currents=edge_currents,
+        )
+    # Calculate field in chunks so as not to use too much memory.
+    npoints = positions.shape[0]
+    field = np.zeros((npoints, 3))
+    nchunks, remainder = divmod(npoints, chunk_size)
+    for i in tqdm(range(nchunks), desc="Chunks"):
+        ix = slice(i * chunk_size, (i + 1) * chunk_size)
+        field[ix] = biot_savart(
+            positions[ix],
+            current_positions=current_positions,
+            current_vectors=current_vectors,
+            currents=edge_currents,
+        ).magnitude
+    ix = slice(-remainder, None)
+    field[ix] = biot_savart(
+        positions[ix],
         current_positions=current_positions,
         current_vectors=current_vectors,
         currents=edge_currents,
-    )
+    ).magnitude
+    return field * ureg("tesla")
 
 
 def calculate_vector_potential_from_graph(
