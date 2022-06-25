@@ -3,7 +3,7 @@
 #SBATCH --job-name=sweep_lambda
 #SBATCH --array=0-9
 #SBATCH --output=slurm-%A_%a.out
-#SBATCH --time=6:00:00
+#SBATCH --time=12:00:00
 #SBATCH --ntasks=1
 #SBATCH --mem=8G
 #SBATCH --chdir=/home/users/lbvh/josephson-network
