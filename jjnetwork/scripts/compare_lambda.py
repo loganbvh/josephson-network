@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--Lambda-geomspace",
         type=float,
-        nargs="2",
+        nargs=2,
         help="Start, stop, num_points for Lambda.",
     )
     parser.add_argument(
@@ -177,9 +177,10 @@ if __name__ == "__main__":
     length_units = ureg(kwargs["length_units"])
 
     Lambda = kwargs.pop("Lambda")
+    Lambda_geomspace = kwargs.pop("Lambda_geomspace")
+    index = kwargs.pop("Lambda_index")
     if Lambda is None:
-        start, stop, N = kwargs.pop("Lambda_geomspace")
-        index = kwargs.pop("Lambda_index")
+        start, stop, N = Lambda_geomspace
         Lambdas = np.geomspace(start, stop, int(N))
         Lambda = Lambdas[index]
     Lambda = Lambda * length_units
