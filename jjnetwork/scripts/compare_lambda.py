@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--Lambda-geomspace",
         type=float,
-        nargs=2,
+        nargs=3,
         help="Start, stop, num_points for Lambda.",
     )
     parser.add_argument(
