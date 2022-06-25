@@ -6,7 +6,7 @@
 #SBATCH --time=6:00:00
 #SBATCH --ntasks=1
 #SBATCH --mem=8G
-#SBATCH --chdir=$USER/josephson-network
+#SBATCH --chdir=/home/users/lbvh/josephson-network
 
 echo "slurm script:"
 echo "$(<$0)"
