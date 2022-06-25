@@ -33,7 +33,7 @@ python -m jjnetwork.scripts.compare_lambda \
     --pl-radius=$pl_radius \
     --fc-center 0 0 $fc_height \
     --pl-center 0 0 $fc_height \
-    --fc-current="{$fc_current} mA" \
+    --fc-current="${fc_current} mA" \
     --patch-radius-factor=$rpatch \
     --starts=1
 
