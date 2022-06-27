@@ -268,3 +268,14 @@ if __name__ == "__main__":
 
     susc = process_solution(solution, metadata)
     print(f"SuperScreen susceptibility: {susc}.")
+    with open(os.path.join(kwargs["directory"], "sc_solution.json"), "w") as f:
+        json.dump(
+            dict(
+                fc_current=str(fc_current),
+                susceptibility=str(susc),
+                Lambda=str(Lambda),
+            ),
+            f,
+            indent=4,
+            sort_keys=True,
+        )
