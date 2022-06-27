@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=sweep_lambda
-#SBATCH --array=0-9
+#SBATCH --array=0-20
 #SBATCH --output=slurm-%A_%a.out
 #SBATCH --time=12:00:00
 #SBATCH --ntasks=1
