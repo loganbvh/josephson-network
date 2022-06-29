@@ -33,7 +33,7 @@ def sort_solutions_slurm(job_directory):
         os.path.join(job_directory, "**/metadata.json"), recursive=True
     )
     solutions = {}
-    for json_path in json_files:
+    for json_path in sorted(json_files):
         pardir = os.path.basename(os.path.dirname(json_path))
         if int(pardir) % 2:
             with open(json_path, "r") as f:

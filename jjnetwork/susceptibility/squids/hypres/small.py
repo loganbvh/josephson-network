@@ -23,7 +23,7 @@ def make_polygons():
     return sc_polygons, sc_holes, sc_abstract
 
 
-def make_squid(align_layers: str = "middle"):
+def make_squid(align_layers: str = "bottom"):
     polygons, holes, abstract_regions = make_polygons()
     layers = hypres_squid_layers(align=align_layers)
     layer_mapping = {

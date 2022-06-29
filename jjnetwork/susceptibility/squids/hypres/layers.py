@@ -7,11 +7,11 @@ def hypres_squid_layers(
     align: str = "middle",
     london_lambda: float = 0.09,
     z0: float = 0.0,
-    d_BE: float = 0.20,  # BE
+    d_BE: float = 0.20,
     d_I1: float = 0.20,
-    d_W1: float = 0.20,  # W1
+    d_W1: float = 0.20,
     d_I2: float = 0.15,
-    d_W2: float = 0.135,  # W2
+    d_W2: float = 0.135,
 ) -> List[Layer]:
     """Return a list of superscreen.Layers representing the superconducting layers
     in Hypres SQUID susceptometers.
@@ -30,21 +30,11 @@ def hypres_squid_layers(
         A list a Layer objects representing the SQUID wiring layers.
     """
     assert align in ("top", "middle", "bottom")
-
     # Metal layer vertical positions in microns.
-    if align == "bottom":
-        z0_W2 = z0
-        z0_W1 = z0 + d_W2 + d_I2
-        z0_BE = z0 + d_W2 + d_I2 + d_W1 + d_I1
-    elif align == "middle":
-        z0_W2 = z0 + d_W2 / 2
-        z0_W1 = z0 + d_W2 / 2 + d_I2 + d_W1 / 2
-        z0_BE = z0 + d_W2 / 2 + d_I2 + d_W1 / 2 + d_I1 + d_BE / 2
-    else:
-        z0_W2 = z0 + d_W2
-        z0_W1 = z0 + d_W2 + d_I2 + d_W1
-        z0_BE = z0 + d_W2 + d_I2 + d_W1 + d_I1 + d_BE
-
+    scale = {"bottom": 0, "middle": 0.5, "top": 1}[align]
+    z0_W2 = z0 + scale * d_W2
+    z0_W1 = z0 + d_W2 + d_I2 + scale * d_W1
+    z0_BE = z0 + d_W2 + d_I2 + d_W1 + d_I1 + scale * d_W2
     return [
         Layer("W2", london_lambda=london_lambda, thickness=d_W2, z0=z0_W2),
         Layer("W1", london_lambda=london_lambda, thickness=d_W1, z0=z0_W1),
