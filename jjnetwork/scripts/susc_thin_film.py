@@ -187,7 +187,9 @@ if __name__ == "__main__":
     assert 0 <= t < 1, t
     Lambda = lambda_vs_T(t, lambda_0=lambda_0) ** 2 / d
     xi = xi_vs_T(t, xi_0=xi_0)
-    lattice_constant = np.sqrt(np.pi) * xi
+    # See Physical Review. B, Condensed Matter 47 (9): 5219–29. p.5227 right column,
+    # and Physical Review. B, Condensed Matter 43 (13): 10218–28 p.10 223 left column.
+    lattice_constant = np.sqrt(2 * np.pi) * xi
     Ic = Lambda_to_Ic(Lambda * ureg(length_units))
 
     kwargs["junction_d0"] = str(lattice_constant * ureg(length_units))
