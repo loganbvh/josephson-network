@@ -250,12 +250,14 @@ junction_network.objective_strict = pyo.Objective(
 )
 
 junction_network.objective_flexible_screening = pyo.Objective(
-    rule=objective_flexible_screening,
+    # rule=objective_flexible_screening,
+    rule=objective_flexible,
     sense=pyo.minimize,
 )
 
 junction_network.objective_strict_screening = pyo.Objective(
-    rule=objective_strict_screening,
+    # rule=objective_strict_screening,
+    rule=objective_strict,
     sense=pyo.minimize,
 )
 
