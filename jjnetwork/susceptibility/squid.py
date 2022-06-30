@@ -89,6 +89,10 @@ class SSMModel(JosephsonNetwork):
         "squid_points",
         "squid_iterations",
         "squid_fname",
+        "junction_d0",
+        "junction_I0",
+        "bare_mutual",
+        "susceptibility",
     ] + JosephsonNetwork.META_ATTRS
 
     def __init__(
