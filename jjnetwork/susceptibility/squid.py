@@ -152,6 +152,8 @@ class SSMModel(JosephsonNetwork):
         self.bare_mutual = (pl_fluxoid / I_fc).to("Phi_0/A")
         print(f"Bare mutual inductance: {self.bare_mutual:~.3fP}")
 
+        self.susceptibility = None
+
         super().__init__(**kwargs)
 
     def josephson_energy(self, junction_length: float) -> float:
