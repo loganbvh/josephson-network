@@ -1,13 +1,11 @@
-
-
 #!/bin/bash
 
 #SBATCH --job-name=djn-image_array
 #SBATCH --array=0-48
 #SBATCH --output=slurm-%A_%a.out
-#SBATCH --time=14:00:00
+#SBATCH --time=24:00:00
 #SBATCH --ntasks=1
-#SBATCH --mem=7G
+#SBATCH --mem=8G
 
 echo "slurm script:"
 echo "$(<$0)"

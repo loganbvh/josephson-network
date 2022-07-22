@@ -14,7 +14,7 @@ DTFORMAT = jn.DTFORMAT
 
 
 def simulate_image(**kwargs):
-    outdir = kwargs.pop("outdir")
+    outdir = kwargs.pop("directory")
     fc_xs = kwargs.pop("fc_xs")
     fc_ys = kwargs.pop("fc_ys")
     fc_z = kwargs.pop("fc_z")
@@ -97,12 +97,6 @@ if __name__ == "__main__":
         "--island-positions",
         type=str,
         help="Path to .mat file containing island positions.",
-    )
-    parser.add_argument(
-        "--outdir",
-        type=str,
-        default=".",
-        help="Output directory.",
     )
     parser.add_argument(
         "--fc-xs",
