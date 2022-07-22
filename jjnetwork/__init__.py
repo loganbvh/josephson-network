@@ -18,7 +18,7 @@ from .graph_utils import (
     draw_loops,
     draw_vortices,
 )
-from .io import NumpyJSONEncoder
+from .io import NumpyJSONEncoder, DTFORMAT
 from .network import JosephsonNetwork
 from .pyomo_model import calculate_loop_info
 from .susceptibility.squid import SSMModel
