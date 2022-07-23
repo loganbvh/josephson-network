@@ -106,9 +106,9 @@ def copy_lowest_energy_solution_image(
     for row in os.listdir(array_job_directory):
         try:
             row = int(row)
+            jobs.append(row)
         except ValueError:
             pass
-        jobs.append(row)
     jobs = [str(row) for row in sorted(jobs)]
     row_dirs = []
     for row in jobs:
