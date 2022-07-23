@@ -88,6 +88,45 @@ def copy_lowest_energy_solution(
         traceback.print_exc()
 
 
+def copy_lowest_energy_solution_image(
+    array_job_directory,
+    to_directory=None,
+    dry_run=False,
+    force=False,
+):
+    job_id = os.path.basename(array_job_directory)
+    if to_directory is None:
+        to_directory = os.path.join(
+            os.environ["HOME"],
+            "josephson-network",
+            "results",
+        )
+    to_directory = os.path.join(to_directory, job_id)
+    jobs = []
+    for row in os.listdir(array_job_directory):
+        try:
+            row = int(row)
+        except ValueError:
+            pass
+        jobs.append(row)
+    jobs = [str(row) for row in sorted(jobs)]
+    row_dirs = []
+    for row in jobs:
+        d = os.path.join(array_job_directory, row)
+        row_dirs.append(os.path.join(d, os.listdir(d)[0]))
+    row_dirs = sorted(row_dirs)
+    for row, path in zip(jobs, row_dirs):
+        outdir = os.path.join(to_directory, row)
+        os.makedirs(outdir)
+        for i, col in enumerate(sorted(os.listdir(path))):
+            copy_lowest_energy_solution(
+                os.path.join(path, col),
+                to_directory=os.path.join(outdir, str(i)),
+                force=force,
+                dry_run=dry_run,
+            )
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -114,6 +153,7 @@ if __name__ == "__main__":
         "--dry-run",
         action="store_true",
     )
+    parser.add_argument("--image", action="store_true")
     parser.add_argument("--to", type=str, default=None, help="Destination directory.")
 
     args = parser.parse_args()
@@ -128,9 +168,17 @@ if __name__ == "__main__":
         for job in target_jobs:
             jobs.extend(glob.glob(os.path.join(directory, job)))
     for job in jobs:
-        copy_lowest_energy_solution(
-            job,
-            to_directory=args.to,
-            dry_run=args.dry_run,
-            force=args.force,
-        )
+        if args.image:
+            copy_lowest_energy_solution_image(
+                job,
+                to_directory=args.to,
+                dry_run=args.dry_run,
+                force=args.force,
+            )
+        else:
+            copy_lowest_energy_solution(
+                job,
+                to_directory=args.to,
+                dry_run=args.dry_run,
+                force=args.force,
+            )
