@@ -117,7 +117,8 @@ def copy_lowest_energy_solution_image(
     row_dirs = sorted(row_dirs)
     for row, path in zip(jobs, row_dirs):
         outdir = os.path.join(to_directory, row)
-        os.makedirs(outdir)
+        if not dry_run:
+            os.makedirs(outdir)
         for i, col in enumerate(sorted(os.listdir(path))):
             copy_lowest_energy_solution(
                 os.path.join(path, col),
