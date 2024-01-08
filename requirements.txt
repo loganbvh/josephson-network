@@ -1,7 +1,7 @@
-gekko
 networkx
 pandas
 pre-commit
+pyomo
 superscreen>=0.6.0
 tables
 tqdm

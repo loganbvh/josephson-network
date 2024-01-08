@@ -39,31 +39,27 @@ class TwoLoopModel(JosephsonNetwork):
         "pl_center",
         "pl_radius",
         "patch_radius",
-        "junction_cutoff_radius",
+        "junction_length_dependence",
         "junction_d0",
         "junction_I0",
+        "bare_mutual_bs",
+        "bare_mutual_A",
+        "susceptibility",
     ] + JosephsonNetwork.META_ATTRS
 
     def __init__(
         self,
         *,
-        directory: os.PathLike,
-        island_positions: np.ndarray,
-        island_diameter: float,
         fc_center: Sequence[float],
         fc_radius: float,
         fc_current: str,
         pl_center: Sequence[float],
         pl_radius: float,
         patch_radius_factor: float,
-        junction_cutoff_radius: str,
         junction_d0: str,
         junction_I0: str,
-        length_units: str = "um",
         junction_length_dependence: str = "power_law",
-        rng_seed: int = -1,
-        gekko_local: bool = True,
-        gekko_verbose: int = 5,
+        **kwargs,
     ):
         # Field coil info
         self.fc_center = np.atleast_2d(fc_center)
@@ -74,53 +70,30 @@ class TwoLoopModel(JosephsonNetwork):
         self.pl_radius = pl_radius
         self.pl_centroids = None
         self.pl_areas = None
-
-        self.island_diameter = island_diameter
+        # Remove points lying outside the patch radius
         self.patch_radius = fc_radius * patch_radius_factor
-        self.junction_cutoff_radius = junction_cutoff_radius
+        island_positions = kwargs.pop("island_positions")
+        island_positions = island_positions[
+            la.norm(island_positions - self.fc_center[:, :2], axis=1)
+            <= self.patch_radius
+        ]
+        # island_positions = island_positions[
+        #     (np.abs(island_positions[:, 0] - self.fc_center[:, 0]) <= self.patch_radius)
+        #     & (np.abs(island_positions[:, 1] - self.fc_center[:, 1]) <= self.patch_radius)
+        # ]
+        ix = np.argsort(island_positions[:, 0])
+        island_positions = island_positions[ix]
+        kwargs["island_positions"] = island_positions
+        print(f"Total patch size: {island_positions.shape[0]} islands.")
         self.junction_d0 = junction_d0
         self.junction_I0 = junction_I0
         assert junction_length_dependence in EJ_funcs
         self.junction_length_dependence = junction_length_dependence
+        self.bare_mutual_bs = None
+        self.bare_mutual_A = None
+        self.susceptibility = None
 
-        super().__init__(
-            directory=directory,
-            island_positions=island_positions,
-            length_units=length_units,
-            rng_seed=rng_seed,
-            gekko_local=gekko_local,
-            gekko_verbose=gekko_verbose,
-        )
-
-    def compute_neighbors(self) -> None:
-        """Removes islands outside the patch radius, and any overlapping
-        or isolated islands.
-        """
-        # Remove points lying outside the patch radius
-        self.island_positions = self.island_positions[
-            la.norm(self.island_positions - self.fc_center[:, :2], axis=1)
-            <= self.patch_radius
-        ]
-        print(f"Total patch size: {self.island_positions.shape[0]} islands.")
-        # Replace any set of overlapping islands with a single island located at
-        # the mean position of the set of islands.
-        self.island_positions = gu.remove_overlapping_islands(
-            self.island_positions,
-            ureg(self.island_diameter).to(self.length_units).magnitude,
-        )
-        print(
-            f"Total patch size after removing overlapping islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        self.island_positions, self.neighbors = gu.remove_isolated_islands(
-            self.island_positions,
-            self.junction_cutoff_radius,
-        )
-        print(
-            f"Total patch size after removing isolated islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        assert len(self.neighbors) == len(self.island_positions)
+        super().__init__(**kwargs)
 
     def josephson_energy(self, junction_length: float) -> float:
         d0 = ureg(self.junction_d0).to("m").magnitude
@@ -154,8 +127,8 @@ class TwoLoopModel(JosephsonNetwork):
         )[:, 2]
         fc_field = fc_field * ureg("tesla")
         bare_flux = np.einsum("i, i ->", fc_field, pl_areas).to("Phi_0")
-        bare_mutual_bs = (bare_flux / self.fc_current).to("Phi_0 / A")
-        print(f"Bare mutual inductance (Biot-Savart): {bare_mutual_bs:.3e~P}")
+        self.bare_mutual_bs = (bare_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (Biot-Savart): {self.bare_mutual_bs:.3e~P}")
 
         pl_outer = (
             np.append(pl_outer, np.zeros_like(pl_outer[:, :1]), axis=1)
@@ -170,8 +143,8 @@ class TwoLoopModel(JosephsonNetwork):
         ) * ureg("tesla * meter")
         d_pl = np.diff(close_curve(pl_outer), axis=0)
         pl_flux = np.trapz(np.sum(pl_vector_potential * d_pl, axis=1)).to("Phi_0")
-        bare_mutual_A = (pl_flux / self.fc_current).to("Phi_0 / A")
-        print(f"Bare mutual inductance (vector potential): {bare_mutual_A:.3e~P}")
+        self.bare_mutual_A = (pl_flux / self.fc_current).to("Phi_0 / A")
+        print(f"Bare mutual inductance (vector potential): {self.bare_mutual_A:.3e~P}")
         return super().build_model()
 
     def vector_potential(self, positions: np.ndarray) -> np.ndarray:
@@ -193,6 +166,7 @@ class TwoLoopModel(JosephsonNetwork):
         screening_field = em.calculate_field_from_graph(self.pl_centroids, graph)[:, 2]
         screening_flux = np.einsum("i, i ->", screening_field, pl_areas).to("Phi_0")
         mutual = (screening_flux / self.fc_current).to("Phi_0 / A")
+        self.susceptibility = mutual
         print(f"Susceptibility: {mutual:.3e~P}")
         with open(self.json_file, "r") as f:
             metadata = json.load(f)
@@ -210,9 +184,11 @@ class TwoLoopModel(JosephsonNetwork):
         ) * length_scale
         ax.plot(fc[:, 0], fc[:, 1], "C1-", lw=3)
         ax.plot(pl[:, 0], pl[:, 1], "C2-", lw=3)
-        ax.set_title(os.path.basename(self.outdir))
-        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        ax.set_title(os.path.basename(self.basedir))
+        fig.savefig(os.path.join(self.basedir, "graph.pdf"), bbox_inches="tight")
         plt.close(fig)
+
+        energy = sum(energy for _, _, energy in graph.edges.data("energy"))
 
         df = gu.edge_data_to_df(graph)
         fig, axes = gu.draw_currents(df, linewidth=3, cmap="inferno")
@@ -221,7 +197,8 @@ class TwoLoopModel(JosephsonNetwork):
             (
                 f"Junction I0: {self.junction_I0}, "
                 f"FC current: {self.fc_current:.2f~P}, "
-                f"Susceptibility: {mutual:.3e~P}"
+                f"Susceptibility: {mutual:.3e~P}, "
+                f"Energy: {energy:.4e} eV"
             ),
         ]
         fig.suptitle("\n".join(title))

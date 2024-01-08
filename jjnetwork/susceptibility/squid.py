@@ -87,29 +87,24 @@ class SSMModel(JosephsonNetwork):
         "squid_points",
         "squid_iterations",
         "squid_fname",
+        "bare_mutual",
+        "susceptibility",
     ] + JosephsonNetwork.META_ATTRS
 
     def __init__(
         self,
         *,
-        directory: os.PathLike,
-        island_positions: np.ndarray,
-        island_diameter: float,
         squid_type: str,
         squid_position: Sequence[float],
         fc_current: str,
         patch_radius_factor: float,
-        junction_cutoff_radius: str,
         junction_d0: str,
         junction_I0: str,
+        junction_length_dependence: str = "power_law",
         squid_fname: Optional[str] = None,
         squid_points: int = 5000,
         squid_iterations: int = 4,
-        length_units: str = "um",
-        junction_length_dependence: str = "power_law",
-        rng_seed: int = -1,
-        gekko_local: bool = True,
-        gekko_verbose: int = 5,
+        **kwargs,
     ):
         self.squid_fname = squid_fname
         self.squid_type = squid_type
@@ -122,11 +117,16 @@ class SSMModel(JosephsonNetwork):
         self.squid_iterations = squid_iterations
         self.squid = squid.translate(*self.squid_position.squeeze())
         self.fc_current = ureg(fc_current)
-
-        self.island_diameter = island_diameter
+        # Remove points lying outside the patch radius
+        length_units = kwargs["length_units"]
         fc_radius = field_coil_radii[self.squid_type].r_effective.to(length_units).m
         self.patch_radius = fc_radius * patch_radius_factor
-        self.junction_cutoff_radius = junction_cutoff_radius
+        island_positions = kwargs.pop("island_positions")
+        island_positions = island_positions[
+            la.norm(island_positions - self.squid_position[:, :2], axis=1)
+            <= self.patch_radius
+        ]
+        kwargs["island_positions"] = island_positions
         self.junction_d0 = junction_d0
         self.junction_I0 = junction_I0
         assert junction_length_dependence in EJ_funcs
@@ -145,45 +145,9 @@ class SSMModel(JosephsonNetwork):
         pl_fluxoid = sum(self.fc_solution.hole_fluxoid("pl_center", units="Phi_0"))
         self.bare_mutual = (pl_fluxoid / I_fc).to("Phi_0/A")
         print(f"Bare mutual inductance: {self.bare_mutual:~.3fP}")
+        self.susceptibility = None
 
-        super().__init__(
-            directory=directory,
-            island_positions=island_positions,
-            length_units=length_units,
-            rng_seed=rng_seed,
-            gekko_local=gekko_local,
-            gekko_verbose=gekko_verbose,
-        )
-
-    def compute_neighbors(self) -> None:
-        """Removes islands outside the patch radius, and any overlapping
-        or isolated islands.
-        """
-        # Remove points lying outside the patch radius
-        self.island_positions = self.island_positions[
-            la.norm(self.island_positions - self.squid_position[:, :2], axis=1)
-            <= self.patch_radius
-        ]
-        print(f"Total patch size: {self.island_positions.shape[0]} islands.")
-        # Replace any set of overlapping islands with a single island located at
-        # the mean position of the set of islands.
-        self.island_positions = gu.remove_overlapping_islands(
-            self.island_positions,
-            ureg(self.island_diameter).to(self.length_units).magnitude,
-        )
-        print(
-            f"Total patch size after removing overlapping islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        self.island_positions, self.neighbors = gu.remove_isolated_islands(
-            self.island_positions,
-            self.junction_cutoff_radius,
-        )
-        print(
-            f"Total patch size after removing isolated islands: "
-            f"{self.island_positions.shape[0]} islands."
-        )
-        assert len(self.neighbors) == len(self.island_positions)
+        super().__init__(**kwargs)
 
     def josephson_energy(self, junction_length: float) -> float:
         d0 = ureg(self.junction_d0).to("m").magnitude
@@ -233,8 +197,8 @@ class SSMModel(JosephsonNetwork):
             points = polygon.points
             points = (points * ureg(self.squid.length_units)).to("m").magnitude
             ax.plot(points[:, 0], points[:, 1], "C1-")
-        ax.set_title(os.path.basename(self.outdir))
-        fig.savefig(os.path.join(self.outdir, "graph.pdf"), bbox_inches="tight")
+        ax.set_title(os.path.basename(self.basedir))
+        fig.savefig(os.path.join(self.basedir, "graph.pdf"), bbox_inches="tight")
         plt.close(fig)
 
         df = gu.edge_data_to_df(graph)

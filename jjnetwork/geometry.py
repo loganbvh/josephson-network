@@ -1,3 +1,6 @@
+from typing import Union, Tuple, Optional
+
+import matplotlib as mpl
 from meshpy import triangle
 import numpy as np
 from scipy import spatial
@@ -26,6 +29,55 @@ def circle(radius: float, points: int = 100, center=(0, 0)) -> np.ndarray:
     xs = radius * np.cos(theta)
     ys = radius * np.sin(theta)
     coords = np.stack([xs, ys], axis=1) + np.array([[x0, y0]])
+    return coords
+
+
+def box(
+    width: float,
+    height: Optional[float] = None,
+    points_per_side: int = 25,
+    center: Tuple[float, float] = (0, 0),
+    angle: float = 0,
+) -> np.ndarray:
+    """Returns the coordinates for a rectangle with a given width and height,
+    centered at the specified center.
+
+    Args:
+        width: Width of the rectangle (in the x direction).
+        height: Height of the rectangle (in the y direction). If None is given,
+            then height is set to width and the function returns a square.
+        points_per_side: Number of points on each side of the box.
+        center: Coordinates of the center of the rectangle.
+        angle: Angle (in degrees) by which to rotate counterclockwise about (0, 0)
+            **before** translating to the specified center.
+
+    Returns:
+        A shape ``(4 * points_per_side, 2)`` array of (x, y) coordinates
+    """
+    width = abs(width)
+    if height is None:
+        height = width
+    height = abs(height)
+    x0, y0 = center
+    xs = np.concatenate(
+        [
+            width / 2 * np.ones(points_per_side),
+            np.linspace(width / 2, -width / 2, points_per_side),
+            -width / 2 * np.ones(points_per_side),
+            np.linspace(-width / 2, width / 2, points_per_side),
+        ]
+    )
+    ys = np.concatenate(
+        [
+            np.linspace(-height / 2, height / 2, points_per_side),
+            height / 2 * np.ones(points_per_side),
+            np.linspace(height / 2, -height / 2, points_per_side),
+            -height / 2 * np.ones(points_per_side),
+        ]
+    )
+    coords = np.stack([xs, ys], axis=1) + np.array([[x0, y0]])
+    if angle:
+        coords = rotate(coords, angle)
     return coords
 
 
@@ -195,3 +247,33 @@ def is_ccw(points):
     area = np.sum(xd * yd) * 0.5
     ccw = area < 0
     return ccw
+
+
+def contains_points(
+    path_points: np.ndarray,
+    query_points: np.ndarray,
+    index: bool = False,
+    radius: float = 0,
+) -> Union[bool, np.ndarray]:
+    """Determines whether ``query_points`` lie within the polygon defined by
+    ``path_points``.
+
+    Args:
+        path_points: Shape ``(n, 2)`` array of x, y coordinates.
+        query_points: Shape ``(m, 2)`` array of x, y coordinates.
+        index: If True, then return the indices of the points in ``query_points``
+            that lie within the polygon defined by ``path_points``. Otherwise,
+            returns a shape ``(m, )`` boolean array.
+        radius: An additional margin on the path defined by ``path_points``.
+            See :meth:`matplotlib.path.Path.contains_points`.
+
+    Returns:
+        If index is True, returns the indices of the points in ``points``
+        that lie within the polygon. Otherwise, returns a shape ``(m, )``
+        boolean array indicating whether each point lies within the polygon.
+    """
+    path = mpl.path.Path(path_points, closed=True)
+    bool_array = path.contains_points(np.atleast_2d(query_points), radius=radius)
+    if index:
+        return np.where(bool_array)[0]
+    return bool_array
